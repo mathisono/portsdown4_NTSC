@@ -6,9 +6,9 @@ Buster and configures the obsolete camera stack. It now exits before those
 changes unless the host is 32-bit Buster.
 
 The Trixie development target is a **Raspberry Pi 4 Model B with 2 GB RAM**
-running **Raspberry Pi OS Trixie Lite 32-bit (`armhf`)**, with the official Pi
-touchscreen, analog and HDMI capture, and LimeSDR output. Pluto and
-Portsdown-board output are also desired. The touchscreen revision and exact
+running **Raspberry Pi OS Trixie Lite 32-bit (`armhf`)**, with the **original
+Raspberry Pi 7-inch 800×480 Touch Display**, analog and HDMI capture, and
+LimeSDR output. Pluto and Portsdown-board output are also desired. The exact
 capture-device models are not yet confirmed. The official 32-bit image is
 available from the [Raspberry Pi OS Lite `armhf` archive](https://downloads.raspberrypi.com/raspios_lite_armhf/images/raspios_lite_armhf-2026-10-06/).
 No Pi 4/Trixie build or hardware test has been completed.
@@ -73,7 +73,8 @@ pixels. Touchscreen discovery checks later evdev nodes so connected capture
 devices do not displace the touchscreen outside the first seven entries. The
 legacy display-configuration script refuses to alter modern `/boot/firmware`
 setups, and a missing touchscreen no longer triggers a Trixie reboot loop.
-The official touchscreen and GUI still require a live Pi test.
+The factory `display=Element14_7` setting matches the original 800x480 screen;
+the DSI mode, touch mapping, and GUI still require a live Pi test.
 
 The updater no longer deletes `avc2ts.cpp` before downloading from a
 nonexistent `Marx1/avc2ts:portsdown4_NTSC` branch. It downloads the BATC
@@ -101,8 +102,9 @@ transmission, a touchscreen, or the Pi operating system.
 ## Remaining Trixie work and acceptance gates
 
 1. Boot the Pi from a spare Raspberry Pi OS Trixie Lite **32-bit (`armhf`)**
-   image. Confirm the display, capture card, and SDR/RF output; run the encoder
-   probe and confirm `h264_v4l2m2m` actually encodes. Do not merge the
+   image. Confirm the original screen presents an 800x480 framebuffer and
+   working touch input, then check the capture card and SDR/RF output. Run the
+   encoder probe and confirm `h264_v4l2m2m` actually encodes. Do not merge the
    incomplete `Bookworm` branch wholesale.
 2. Build a new, non-destructive Trixie installer using available packages and
    a fresh image; replace obsolete `omxplayer`, `/opt/vc`, camera, boot-config,

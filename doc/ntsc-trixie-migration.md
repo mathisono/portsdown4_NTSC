@@ -5,6 +5,10 @@ run `install_portsdown.sh` on Bookworm or Trixie: it rewrites apt sources for
 Buster and configures the obsolete camera stack. It now exits before those
 changes unless the host is 32-bit Buster.
 
+The Trixie development target is a **Raspberry Pi 4 Model B with 2 GB RAM**.
+The OS image architecture, display, capture device, and RF output have not yet
+been specified. No Pi 4/Trixie build or hardware test has been completed.
+
 ## Repository baseline (9 November 2026)
 
 | Source | Published branch | State |
@@ -12,6 +16,7 @@ changes unless the host is 32-bit Buster.
 | `Marx1/portsdown4_NTSC` | `master` | Buster installer and legacy Portsdown 4 runtime |
 | `Marx1/portsdown4_NTSC` | `Bookworm` | Partial experiment; skips the `avc2ts` build but scripts still call it |
 | `Marx1/portsdown4_NTSC` | Trixie | No published branch found |
+| `mathisono/portsdown4_NTSC` | `Trixie` | Development branch based on the NTSC H.264 foundation; not a working Trixie release |
 | `BritishAmateurTelevisionClub/portsdown4` | `master` | Newer Portsdown 4 code, still Buster-oriented |
 | `BritishAmateurTelevisionClub/portsdown5` | `main` | Trixie/64-bit reference; different product and incomplete Portsdown 4 feature parity |
 
@@ -69,19 +74,18 @@ transmission, a touchscreen, or the Pi operating system.
 
 ## Remaining Trixie work and acceptance gates
 
-1. Identify the intended Pi model, display, capture card, SDR/RF output, and
-   the claimed Trixie branch. Agree whether to port this fork or base the
-   system on Portsdown 5. Do not merge the incomplete `Bookworm` branch
-   wholesale.
+1. Confirm the Pi's Trixie OS image architecture, display, capture card, and
+   SDR/RF output. Do not merge the incomplete `Bookworm` branch wholesale.
 2. Build a new, non-destructive Trixie installer using available packages and
    a fresh image; replace obsolete `omxplayer`, `/opt/vc`, camera, boot-config,
    and Debian package assumptions. Confirm every source download and build.
 3. Port the remaining GUI dependencies and display/input path (WiringPi,
    LimeSuite, DRM framebuffer/touchscreen); compile and launch it on the target
    Pi. A successful source-level syntax check is not a GUI runtime test.
-4. Port remaining H.264 sources/output modes. Measure libx264 CPU use,
-   continuity/PCR, audio synchronization, and stable RF transmission at the
-   intended symbol rates. Keep PAL functional as an explicit regression gate.
+4. Port remaining H.264 sources/output modes. Measure libx264 CPU and memory
+   use on the 2 GB Pi, continuity/PCR, audio synchronization, and stable RF
+   transmission at the intended symbol rates. Keep PAL functional as an
+   explicit regression gate.
 5. Test fresh install, update preserving user configuration, shutdown/reboot,
    and rollback on a spare SD card before use on an operational transmitter.
 

@@ -2,7 +2,8 @@
 # Portsdown Buster Build For RPi 4
 
 **NTSC/Trixie development:** See [migration status and known limits](doc/ntsc-trixie-migration.md).
-This `Trixie` branch targets a Pi 4 (2 GB) and is **not installable yet**:
+This `Trixie` branch targets a Pi 4 (2 GB) running **Raspberry Pi OS Trixie
+Lite 32-bit (`armhf`)** and is **not installable yet**:
 the installer below remains Buster-only. Analog/webcam H.264 can use FFmpeg
 with software, hardware-if-available, or automatic encoder selection, but the
 full GUI and RF paths still need a Pi 4/Trixie test.

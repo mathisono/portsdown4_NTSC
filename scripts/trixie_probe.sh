@@ -6,11 +6,19 @@ section() { printf '\n== %s ==\n' "$1"; }
 value() { if [ -r "$1" ]; then tr -d '\000\n' < "$1"; else printf 'unavailable'; fi; }
 
 section 'System'
+os_codename=unknown
 if [ -r /etc/os-release ]; then
   . /etc/os-release
   printf 'OS: %s\n' "${PRETTY_NAME:-unknown}"
+  os_codename=${VERSION_CODENAME:-unknown}
 fi
-printf 'Architecture: %s\n' "$(dpkg --print-architecture 2>/dev/null || uname -m)"
+userspace_arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+printf 'Userspace architecture: %s\n' "$userspace_arch"
+if [ "$os_codename" = trixie ] && [ "$userspace_arch" = armhf ]; then
+  printf 'Trixie 32-bit armhf target: matched\n'
+else
+  printf 'Trixie 32-bit armhf target: NOT matched (inventory continues)\n'
+fi
 printf 'Kernel: %s\n' "$(uname -r)"
 printf 'Board: '; value /proc/device-tree/model; printf '\n'
 awk '/^MemTotal:/ { printf "RAM: %.0f MiB\n", $2 / 1024 }' /proc/meminfo

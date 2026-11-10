@@ -5,10 +5,12 @@ run `install_portsdown.sh` on Bookworm or Trixie: it rewrites apt sources for
 Buster and configures the obsolete camera stack. It now exits before those
 changes unless the host is 32-bit Buster.
 
-The Trixie development target is a **Raspberry Pi 4 Model B with 2 GB RAM**,
-the official Pi touchscreen, analog and HDMI capture, and LimeSDR output.
-Pluto and Portsdown-board output are also desired. The Trixie image architecture,
-touchscreen revision, and exact capture-device models are not yet confirmed.
+The Trixie development target is a **Raspberry Pi 4 Model B with 2 GB RAM**
+running **Raspberry Pi OS Trixie Lite 32-bit (`armhf`)**, with the official Pi
+touchscreen, analog and HDMI capture, and LimeSDR output. Pluto and
+Portsdown-board output are also desired. The touchscreen revision and exact
+capture-device models are not yet confirmed. The official 32-bit image is
+available from the [Raspberry Pi OS Lite `armhf` archive](https://downloads.raspberrypi.com/raspios_lite_armhf/images/raspios_lite_armhf-2026-10-06/).
 No Pi 4/Trixie build or hardware test has been completed.
 
 ## Repository baseline (9 November 2026)
@@ -27,8 +29,12 @@ The old `avc2ts` source uses OpenMAX/MMAL and `/opt/vc`, parses `-f` with
 truncates `1000 / fps` to an integer before timestamp generation. Passing
 `29.97` to it is therefore not an NTSC fix. Portsdown 5's own README notes
 that the Pi 4's old H.264 hardware encoder is not accessible from its 64-bit
-Trixie environment. The modern migration path should use FFmpeg/libx264 or
-another supported encoder, not attempt to recompile OpenMAX.
+Trixie environment. This branch therefore targets 32-bit `armhf`, not
+64-bit `arm64`. That removes the known architecture blocker but does **not**
+prove the encoder is available on 32-bit Trixie. Use the FFmpeg V4L2 M2M
+hardware probe and a live capture/transmit test on the Pi before claiming
+hardware acceleration; `libx264` remains a software fallback. Do not attempt
+to recompile OpenMAX as the Trixie solution.
 
 ## Implemented first slice
 
@@ -51,10 +57,10 @@ analog capture card to its matching input standard separately, using the
 existing `analogcamstandard` setting and the standards actually reported by
 `v4l2-ctl --list-standards` for that card. The Pluto RTMP, Pi Camera, desktop,
 test-card, HDMI, and other H.264 paths **have not** been ported to this backend.
-The hardware option is conditional: FFmpeg may list `h264_v4l2m2m` even when
-the Pi kernel exposes no usable encoder. `auto` encodes a probe frame before
-selection; explicit `hardware` exits with an error if that probe fails. No
-hardware encoding on Pi 4/Trixie has been demonstrated yet.
+The hardware option is conditional even on 32-bit Trixie: FFmpeg may list
+`h264_v4l2m2m` when the Pi kernel exposes no usable encoder. `auto` encodes a
+probe frame before selection; explicit `hardware` exits with an error if that
+probe fails. No hardware encoding on Pi 4/Trixie has been demonstrated yet.
 
 The GUI no longer links the unused `bcm_host` library and now reports
 framebuffer open/mapping/pixel-layout failures instead of continuing with an
@@ -94,8 +100,10 @@ transmission, a touchscreen, or the Pi operating system.
 
 ## Remaining Trixie work and acceptance gates
 
-1. Confirm the Pi's Trixie OS image architecture, display, capture card, and
-   SDR/RF output. Do not merge the incomplete `Bookworm` branch wholesale.
+1. Boot the Pi from a spare Raspberry Pi OS Trixie Lite **32-bit (`armhf`)**
+   image. Confirm the display, capture card, and SDR/RF output; run the encoder
+   probe and confirm `h264_v4l2m2m` actually encodes. Do not merge the
+   incomplete `Bookworm` branch wholesale.
 2. Build a new, non-destructive Trixie installer using available packages and
    a fresh image; replace obsolete `omxplayer`, `/opt/vc`, camera, boot-config,
    and Debian package assumptions. Confirm every source download and build.
@@ -109,10 +117,10 @@ transmission, a touchscreen, or the Pi operating system.
 5. Test fresh install, update preserving user configuration, shutdown/reboot,
    and rollback on a spare SD card before use on an operational transmitter.
 
-The next meaningful hardware test is a Pi 4 with Trixie, a known NTSC V4L2
+The next meaningful hardware test is a Pi 4 with 32-bit Trixie, a known NTSC V4L2
 capture card and the intended RF output. Verify decoded 720x480 30000/1001
-video, AAC if selected, configured PIDs, GUI input, and a sustained local TS/RF
-run before calling this a Trixie build.
+video, AAC if selected, configured PIDs, GUI input, hardware H.264 selection,
+and a sustained local TS/RF run before calling this a Trixie build.
 
 For a read-only inventory of the Pi's display, input, capture and build tools,
 run `bash scripts/trixie_probe.sh` from this branch on the Pi. It does not install

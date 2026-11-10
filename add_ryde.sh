@@ -2,6 +2,17 @@
 
 # Add Ryde to Portsdown 4 build
 
+# The legacy installer rewrites apt sources for Buster.
+if [ ! -r /etc/os-release ]; then
+  echo "Cannot identify the operating system; Ryde install stopped." >&2
+  exit 1
+fi
+. /etc/os-release
+if [ "${VERSION_CODENAME:-}" != "buster" ] || [ "$(dpkg --print-architecture)" != "armhf" ]; then
+  echo "This Ryde installer supports Raspberry Pi OS Buster 32-bit only." >&2
+  exit 1
+fi
+
 cd /home/pi
 
 # Check which source needs to be loaded
@@ -31,6 +42,9 @@ else
   echo "-------------------------------------------"
   echo
 fi
+
+# Amend the sources.list to legacy
+sudo bash -c 'echo -e "deb http://legacy.raspbian.org/raspbian/ buster main contrib non-free rpi" > /etc/apt/sources.list' 
 
 # Update the package manager
 echo
@@ -271,5 +285,4 @@ echo
 
 sudo reboot now
 exit
-
 

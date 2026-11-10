@@ -2,6 +2,18 @@
 
 # Updated by davecrump 20230228 for Portsdown 4 and LimeSDR Mini V2
 
+# This legacy updater rewrites apt sources for Buster. Keep it off Trixie.
+if [ ! -r /etc/os-release ]; then
+  echo "Cannot identify the operating system; update stopped." >&2
+  exit 1
+fi
+. /etc/os-release
+if [ "${VERSION_CODENAME:-}" != "buster" ] || [ "$(dpkg --print-architecture)" != "armhf" ]; then
+  echo "This updater supports Raspberry Pi OS Buster 32-bit only." >&2
+  echo "Do not use it on Trixie; no Trixie updater is ready yet." >&2
+  exit 1
+fi
+
 DisplayUpdateMsg() {
   # Delete any old update message image
   rm /home/pi/tmp/update.jpg >/dev/null 2>/dev/null
@@ -158,6 +170,14 @@ cp -f -r /home/pi/rpidatv/src/plutoview/plutoview_bands.txt "$PATHUBACKUP"/pluto
 # Make a safe copy of the SDRplay Band Viewer config
 cp -f -r /home/pi/rpidatv/src/sdrplayview/sdrplayview_config.txt "$PATHUBACKUP"/sdrplayview_config.txt
 
+# Make a safe copy of the Lime and Pluto NF Meter Configs
+cp -f -r /home/pi/rpidatv/src/nf_meter/nf_meter_config.txt "$PATHUBACKUP"/nf_meter_config.txt
+cp -f -r /home/pi/rpidatv/src/pluto_nf_meter/pluto_nf_meter_config.txt "$PATHUBACKUP"/pluto_nf_meter_config.txt
+
+# Make a safe copy of the Lime and Pluto Noise Meter Configs
+cp -f -r /home/pi/rpidatv/src/noise_meter/noise_meter_config.txt "$PATHUBACKUP"/noise_meter_config.txt
+cp -f -r /home/pi/rpidatv/src/pluto_noise_meter/pluto_noise_meter_config.txt "$PATHUBACKUP"/pluto_noise_meter_config.txt
+
 # Make a safe copy of the Meteor Viewer config
 cp -f -r /home/pi/rpidatv/src/meteorview/meteorview_config.txt "$PATHUBACKUP"/meteorview_config.txt
 
@@ -181,7 +201,19 @@ cp -f -r "$PATHSCRIPT"/images "$PATHUBACKUP"/images
 # Make a safe copy of the HamTV Merger config
 cp -f -r "$PATHSCRIPT"/merger_config.txt "$PATHUBACKUP"/merger_config.txt
 
+# Make a safe copy of the potential Fixed IP config
+cp -f -r /home/pi/rpidatv/scripts/configs/dhcpcd.conf.prep "$PATHUBACKUP"/dhcpcd.conf.prep
+
+# Make a safe copy of the ISS Tracker config
+cp -f -r "$PATHSCRIPT"/tracker_config.txt "$PATHUBACKUP"/tracker_config.txt
+
+# Make a safe copy of the user's Muntjac cal files
+cp -f -r /home/pi/rpidatv/bin/*.mjo "$PATHUBACKUP"/
+
 DisplayUpdateMsg "Step 4 of 10\nUpdating Software Package List\n\nXXXX------"
+
+# Amend the sources.list to legacy
+sudo bash -c 'echo -e "deb http://legacy.raspbian.org/raspbian/ buster main contrib non-free rpi" > /etc/apt/sources.list' 
 
 # Check for the VLC apt Preferences File.  If not present, write it, and re-install VLC
 # Because installed version may not be the right one
@@ -284,6 +316,15 @@ sudo apt-get -y install libssl-dev                                      # For li
 sudo apt-get -y install libzstd-dev                                     # For libiio 202309040
 sudo apt-get -y install arp-scan                                        # For List Network Devices
 sudo apt-get -y install cppcheck                                        # For HamTV Merger Client
+sudo apt-get -y install dnsmasq                                         # For dhcp server
+sudo apt-get -y install socat                                           # For debugging network issues
+sudo apt-get -y install lsof                                            # For debugging web control issues
+sudo apt-get -y install python3-dev                                     # For ISS tracker
+sudo apt-get -y install python3-pip                                     # For ISS tracker
+sudo apt-get -y install libhamlib-dev                                   # For ISS tracker
+sudo apt-get -y install libhamlib++-dev                                 # For ISS tracker
+sudo apt-get -y install libhamlib-utils                                 # For ISS tracker
+pip3 install ephem requests                                             # For ISS tracker
 
 # Install libwebsockets if required
 if [ ! -d  /home/pi/libwebsockets ]; then
@@ -295,6 +336,58 @@ if [ ! -d  /home/pi/libwebsockets ]; then
   sudo make install
   sudo ldconfig
   cd /home/pi
+fi
+
+# Re-install libwebsockets if failed on April 2026
+if grep -q 'ts.tv_sec = target_us / 1000000' /home/pi/libwebsockets/lib/core-net/txpacer.c; then
+  cd /home/pi
+  sudo rm -rf libwebsockets
+  git clone https://github.com/warmcat/libwebsockets.git
+  cd libwebsockets
+  cmake ./
+  make all
+  sudo make install
+  sudo ldconfig
+  cd /home/pi
+fi
+
+
+# Check if WiringPi update required (2 failure cases) 20260916
+WIRINGPI_UPDATE_REQUIRED="NO"
+gpio readall
+if [[ "$?" != "0" ]]; then
+  WIRINGPI_UPDATE_REQUIRED="YES"
+fi
+
+if gpio -v | grep -q 'version: 2.50'; then
+  WIRINGPI_UPDATE_REQUIRED="YES"
+fi
+
+if [[ "$WIRINGPI_UPDATE_REQUIRED" == "YES" ]]; then
+  # Purge and install latest version
+  sudo apt -y purge wiringpi
+
+  # Clone latest version
+  cd ~
+  rm -rf ~/WiringPi
+  git clone https://github.com/WiringPi/WiringPi.git
+  cd WiringPi
+
+  # Modify so that it installs on 32-bit buster
+  cd wiringPi
+  sed -i -e 's/\(\[\[gnu::packed\]\]\)//g' bcm_registers.h
+  sed -i -e 's/\(\[\[gnu::packed\]\]\)//g' rp1_registers.h
+  cd ~/WiringPi
+
+  # Build it
+  ./build debian
+
+  # Read latest WiringPi version number and install it
+  vMaj=`cut -d. -f1 VERSION`
+  vMin=`cut -d. -f2 VERSION`
+  mv debian-template/wiringpi_"$vMaj"."$vMin"_armhf.deb .
+  sudo apt install ./wiringpi_"$vMaj"."$vMin"_armhf.deb
+  cd ~
 fi
 
 # Delete any old master files
@@ -395,6 +488,7 @@ cp -f portsdown4_NTSC-master/update_ryde.sh rpidatv/update_ryde.sh
 # Copy the recently added images into the user's back-up image folder
 cp portsdown4_NTSC-master/scripts/images/web_not_enabled.png "$PATHUBACKUP"/images/web_not_enabled.png
 cp portsdown4_NTSC-master/scripts/images/RX_overlay.png "$PATHUBACKUP"/images/RX_overlay.png
+cp portsdown4_NTSC-master/scripts/images/tcf1080.jpg "$PATHUBACKUP"/images/tcf1080.jpg
 
 rm master.zip
 rm -rf portsdown4_NTSC-master
@@ -451,15 +545,14 @@ echo "----------------------------"
 cd /home/pi/rpidatv/src/muntjac
 
 gcc  muntjacsdr_dvb.c  dvbs2neon.S  -mfpu=neon  -lpthread  -o  muntjacsdr_dvb
-gcc  mjcalib-0v1a.c  dvbs2neon.S  -mfpu=neon  -lpthread  -o mjcalib  # only used for manual calibration
+#gcc  mjcalib-0v1a.c  dvbs2neon.S  -mfpu=neon  -lpthread  -o mjcalib  # only used for manual calibration
 
 cp muntjacsdr_dvb /home/pi/rpidatv/bin/             # Executable
-cp E46214B063533828.mjo /home/pi/rpidatv/bin/       # LO Suppression file
 
 cd /home/pi
 
 
-DisplayUpdateMsg "Step 7 of 10\nCompiling Portsdown SW\nDVB-T Transmitter\nXXXXXX----"
+DisplayUpdateMsg "Step 7 of 10\nCompiling Portsdown SW\nDVB-T/T2 Transmitter\nXXXXXX----"
 
 echo
 echo "--------------------------------"
@@ -474,6 +567,16 @@ cp dvb_t_stack /home/pi/rpidatv/bin/dvb_t_stack
 cd /home/pi/rpidatv/src/dvb_t_stack
 sudo cp datvexpress16.ihx /lib/firmware/datvexpress/datvexpress16.ihx
 sudo cp datvexpressraw16.rbf /lib/firmware/datvexpress/datvexpressraw16.rbf
+cd /home/pi
+
+echo
+echo "---------------------------------"
+echo "----- Updating dvb_t2_stack -----"
+echo "---------------------------------"
+cd /home/pi/rpidatv/src/dvb_t2_stack
+make clean
+make -j $(nproc) PI4=1 dvb_t2_stack
+cp dvb_t2_stack /home/pi/rpidatv/bin/dvb_t2_stack
 cd /home/pi
 
 echo
@@ -599,16 +702,16 @@ if [ ! -f  /usr/local/include/sdrplay_api.h ]; then
   cd /home/pi/rpidatv/src/meteorview
 
   # Download api if required
-  if [ ! -f  SDRplay_RSP_API-ARM-3.09.1.run ]; then
-    wget https://www.sdrplay.com/software/SDRplay_RSP_API-ARM-3.09.1.run
+  if [ ! -f SDRplay_RSP_API-Linux-3.12.1.run ]; then
+    wget https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.12.1.run
   fi
-  chmod +x SDRplay_RSP_API-ARM-3.09.1.run
+  chmod +x SDRplay_RSP_API-Linux-3.12.1.run
 
   # Create file to trigger install on next reboot
   touch /home/pi/rpidatv/.post-install_actions
   cd /home/pi
 
-else            # api is intalled, so try to compile SDRplay apps
+else            # api is installed, so try to compile SDRplay apps
   echo
   echo "----------------------------------"
   echo "----- Compiling MeteorViewer -----"
@@ -625,8 +728,8 @@ else            # api is intalled, so try to compile SDRplay apps
     echo "-----------------------------------------"
     cd /home/pi/rpidatv/src/sdrplayview
     make
-    if [[ "$?" == "0" ]]; then     # Successful compile
-      cp sdrplayview ../../bin
+    if [[ "$?" == "0" ]]; then     # Successful compile so copy with permissions
+      cp -p sdrplayview ../../bin
       cd /home/pi
     else
       # Create file to trigger install on next reboot
@@ -730,14 +833,26 @@ echo "---------------------------------------------"
 echo "----- Compiling Client for HamTV Merger -----"
 echo "---------------------------------------------"
 
+cd /home/pi
+rm master.zip >/dev/null 2>/dev/null
+rm -r tsmerge-client-linuxcli-master >/dev/null 2>/dev/null   # (from earlier faulty update)
 wget https://github.com/ARISS-UK/tsmerge-client-linuxcli/archive/refs/heads/master.zip
 unzip master.zip
 rm master.zip
-rm /home/pi/tsmerge
+rm -r /home/pi/tsmerge >/dev/null 2>/dev/null
 mv tsmerge-client-linuxcli-master tsmerge
 cd /home/pi/tsmerge
 make cppcheck && make
 
+# Compile OOK48 Test Source
+echo
+echo "---------------------------------------"
+echo "----- Compiling OOK48 Test Source -----"
+echo "---------------------------------------"
+cd /home/pi/rpidatv/src/ook48
+make
+cp ook48 ../../bin/
+cd /home/pi
 
 # Compile and install the executable for GPIO-switched transmission (201710080)
 echo "Installing keyedtx"
@@ -819,6 +934,14 @@ fi
 # Restore the user's original SDRplay Band Viewer config
 cp -f -r "$PATHUBACKUP"/sdrplayview_config.txt /home/pi/rpidatv/src/sdrplayview/sdrplayview_config.txt
 
+# Restore the user's original Lime and Pluto NF Meter Configs
+cp -f -r "$PATHUBACKUP"/nf_meter_config.txt /home/pi/rpidatv/src/nf_meter/nf_meter_config.txt
+cp -f -r "$PATHUBACKUP"/pluto_nf_meter_config.txt /home/pi/rpidatv/src/pluto_nf_meter/pluto_nf_meter_config.txt
+
+# Restore the user's original Lime and Pluto Noise Meter Configs
+cp -f -r "$PATHUBACKUP"/noise_meter_config.txt /home/pi/rpidatv/src/noise_meter/noise_meter_config.txt
+cp -f -r "$PATHUBACKUP"/pluto_noise_meter_config.txt /home/pi/rpidatv/src/pluto_noise_meter/pluto_noise_meter_config.txt
+
 # Restore the user's original Meteor Viewer config
 cp -f -r "$PATHUBACKUP"/meteorview_config.txt /home/pi/rpidatv/src/meteorview/meteorview_config.txt
 
@@ -844,6 +967,15 @@ fi
 
 # Restore the user's original HamTV Merger config
 cp -f -r "$PATHUBACKUP"/merger_config.txt "$PATHSCRIPT"/merger_config.txt
+
+# Restore the user's original ISS Tracker config
+cp -f -r "$PATHUBACKUP"/tracker_config.txt "$PATHSCRIPT"/tracker_config.txt
+
+# Restore the user's original Muntjac cal files
+cp -f -r "$PATHUBACKUP"/*.mjo /home/pi/rpidatv/bin/  >/dev/null 2>/dev/null
+
+# Restore the user's original potential Fixed IP config
+cp -f -r "$PATHUBACKUP"/dhcpcd.conf.prep /home/pi/rpidatv/scripts/configs/dhcpcd.conf.prep
 
 # Add Mic Gain parameter to config file if not included
 if ! grep -q micgain "$PATHSCRIPT"/portsdown_config.txt; then
@@ -923,6 +1055,15 @@ if ! grep -q ad9850ref /home/pi/rpidatv/src/siggen/siggenconfig.txt; then
   sed -i -e '/^$/d' /home/pi/rpidatv/src/siggen/siggenconfig.txt
   # Add the new entry and a new line 
   echo "ad9850ref=120000000" >> /home/pi/rpidatv/src/siggen/siggenconfig.txt
+fi
+
+# Add CMT2119A reference freq to siggenconfig.txt if not included (202610281)
+if ! grep -q cmt2119aref /home/pi/rpidatv/src/siggen/siggenconfig.txt; then
+  # File needs updating
+  # Delete any blank lines first
+  sed -i -e '/^$/d' /home/pi/rpidatv/src/siggen/siggenconfig.txt
+  # Add the new entry and a new line 
+  echo "cmt2119aref=26000000" >> /home/pi/rpidatv/src/siggen/siggenconfig.txt
 fi
 
 # Add LimeRFE controls to config file if not included  202107010
@@ -1058,6 +1199,27 @@ if ! grep -q muntjacgain= "$PATHSCRIPT"/portsdown_config.txt; then
   echo "t6muntjacgain=10" >> "$PATHSCRIPT"/portsdown_presets.txt
   echo "t7muntjacgain=10" >> "$PATHSCRIPT"/portsdown_presets.txt
   echo "t8muntjacgain=10" >> "$PATHSCRIPT"/portsdown_presets.txt
+fi
+
+# Add libreSDR IP setting to config file if not included  202406160
+if ! grep -q libreip= "$PATHSCRIPT"/portsdown_config.txt; then
+  # File needs updating
+  # Delete any blank lines first
+  sed -i -e '/^$/d' "$PATHSCRIPT"/portsdown_config.txt
+  # Add the new entry and a new line 
+  echo "libreip=dhcp" >> "$PATHSCRIPT"/portsdown_config.txt
+fi
+
+# Correct HamTV merger test port 202510030
+sed -i -e 's/testport=6789/testport=9978/g' /home/pi/rpidatv/scripts/merger_config.txt
+
+# Add HamTV Merger LNB Voltage parameter to config file if required 202510030
+if ! grep -q lnbvolts= "$PATHSCRIPT"/merger_config.txt; then
+  # File needs updating
+  # Delete any blank lines first
+  sed -i -e '/^$/d' "$PATHSCRIPT"/merger_config.txt
+  # Add the new entry and a new line 
+  echo "lnbvolts=off" >> "$PATHSCRIPT"/merger_config.txt
 fi
 
 # Add new stop alias if required  202311xxx

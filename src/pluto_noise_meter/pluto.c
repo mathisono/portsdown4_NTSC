@@ -11,7 +11,7 @@
 #include <pthread.h>
 
 #include "pluto.h"
-#include "/home/pi/libiio/iio.h"  // for Pluto
+#include "iio.h"  // for Pluto
 #include "timing.h"
 
 lime_fft_buffer_t lime_fft_buffer;

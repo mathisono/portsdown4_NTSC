@@ -11,7 +11,7 @@
 #include <pthread.h>
 
 #include "pluto.h"
-#include "/home/pi/libiio/iio.h"  // for Pluto
+#include "iio.h"  // for Pluto
 #include "timing.h"
 #include "buffer/buffer_circular.h"
 

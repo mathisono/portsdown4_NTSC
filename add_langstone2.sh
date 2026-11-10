@@ -2,6 +2,17 @@
 
 # Install script to add Langstone V2 to Portsdown 4
 
+# The legacy installer rewrites apt sources for Buster.
+if [ ! -r /etc/os-release ]; then
+  echo "Cannot identify the operating system; Langstone install stopped." >&2
+  exit 1
+fi
+. /etc/os-release
+if [ "${VERSION_CODENAME:-}" != "buster" ] || [ "$(dpkg --print-architecture)" != "armhf" ]; then
+  echo "This Langstone installer supports Raspberry Pi OS Buster 32-bit only." >&2
+  exit 1
+fi
+
 ############ Set Environment Variables ###############
 
 PCONFIGFILE="/home/pi/rpidatv/scripts/portsdown_config.txt"
@@ -30,6 +41,9 @@ mv "$3.bak" "$3"
 }
 
 ############################################################
+
+# Amend the sources.list to legacy
+sudo bash -c 'echo -e "deb http://legacy.raspbian.org/raspbian/ buster main contrib non-free rpi" > /etc/apt/sources.list' 
 
 # First, update packages to the latest standard
 
@@ -115,5 +129,4 @@ echo "#################################"
 
 #Reboot and start
 sudo reboot now
-
 

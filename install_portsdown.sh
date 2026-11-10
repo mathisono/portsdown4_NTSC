@@ -22,6 +22,12 @@ if [ $? != 0 ]; then
   exit
 fi
 
+# Check that Portsdown is not already installed
+if [ -d /home/pi/rpidatv ]; then
+  echo "Portsdown already installed.  Use update instead."
+  exit
+fi
+
 # Check which source needs to be loaded
 #GIT_SRC="BritishAmateurTelevisionClub"
 GIT_SRC="Marx1"
@@ -29,10 +35,10 @@ GIT_SRC_FILE=".portsdown_gitsrc"
 
 #if [ "$1" == "-d" ]; then
 #  GIT_SRC="davecrump";
-#  echo
-#  echo "---------------------------------------------------------"
-#  echo "----- Installing NTSC version of Portsdown 4-----"
-#  echo "---------------------------------------------------------"
+  echo
+  echo "---------------------------------------------------------"
+  echo "----- Installing NTSC version of Portsdown 4-----"
+  echo "---------------------------------------------------------"
 #elif [ "$1" == "-u" -a ! -z "$2" ]; then
 #  GIT_SRC="$2"
   echo
@@ -42,14 +48,14 @@ GIT_SRC_FILE=".portsdown_gitsrc"
     exit 1;
   fi
   echo "ok!";
-  
+
 # Download and install the VLC apt Preferences File 202212090
 cd /home/pi
 wget https://github.com/${GIT_SRC}/portsdown4_NTSC/raw/master/scripts/configs/vlc
 sudo cp vlc /etc/apt/preferences.d/vlc
 
 # Amend the sources.list to legacy
-sudo bash -c 'echo -e "deb http://legacy.raspbian.org/raspbian/ buster main contrib non-free rpi" > /etc/apt/sources.list' 
+sudo bash -c 'echo -e "deb http://legacy.raspbian.org/raspbian/ buster main contrib non-free rpi" > /etc/apt/sources.list'
 
 # Update the package manager
 echo
@@ -82,12 +88,17 @@ echo "-------------------------------"
 echo "----- Installing Packages -----"
 echo "-------------------------------"
 
-sudo apt-get -y install git cmake libusb-1.0-0-dev libfftw3-dev libxcb-shape0 
-sudo apt-get -y install wiringpi                                         # Wiring pi depracated? 
-sudo apt-get -y install libx11-dev buffer libjpeg-dev indent 
+sudo apt-get -y install git cmake libusb-1.0-0-dev libfftw3-dev libxcb-shape0
+sudo apt-get -y install libx11-dev buffer libjpeg-dev indent
 sudo apt-get -y install bc usbmount libvncserver-dev
 sudo apt-get -y install ttf-dejavu-core                                  # being depracated?
-sudo apt-get -y install fbi netcat imagemagick omxplayer
+sudo apt-get -y install fonts-dejavu-core                                 # Bookworm support
+sudo apt-get -y install fbi  imagemagick
+#sudo apt-get -y install netcat omxplayer                                         #Legacy os
+
+sudo apt-get -y netcat-traditional                                    #bookworm support
+sudo apt-get -y install libpng-dev
+sudo apt-get -y install libraspberrypi-dev
 sudo apt-get -y install libvdpau-dev libva-dev                           # For latest ffmpeg build
 sudo apt-get -y install libsqlite3-dev libi2c-dev                        # 201811300 Lime
 sudo apt-get -y install sshpass  # 201905090 For Jetson Nano
@@ -96,6 +107,8 @@ sudo apt-get -y install libasound2-dev sox # 201910230 for LongMynd tone and avc
 sudo apt-get -y install libavcodec-dev libavformat-dev libswscale-dev libavdevice-dev # Required for ffmpegsrc.cpp
 sudo apt-get -y install mplayer # 202004300 Used for video monitor and LongMynd (not libpng12-dev)
 sudo apt-get -y install vlc  # Latest version works for Portsdown again as of 202207130
+sudo apt-get -y install ffmpeg  #for bookworm
+
 
 sudo apt-get -y install autoconf libtool # for fdk aac
 
@@ -113,34 +126,77 @@ sudo apt-get -y install libzstd-dev                                     # For li
 sudo apt-get -y install arp-scan                                        # For List Network Devices
 sudo apt-get -y install cppcheck                                        # For HamTV Merger Client
 sudo apt-get -y install dnsmasq                                         # For dhcp server
-sudo apt-get -y install socat
+sudo apt-get -y install socat                                           # For debugging network issues
+sudo apt-get -y install lsof                                            # For debugging web control issues
+sudo apt-get -y install python3-dev                                     # For ISS tracker
+sudo apt-get -y install python3-pip                                     # For ISS tracker
+sudo apt-get -y install libhamlib-dev                                   # For ISS tracker
+sudo apt-get -y install libhamlib++-dev                                 # For ISS tracker
+sudo apt-get -y install libhamlib-utils                                 # For ISS tracker
+pip3 install ephem requests                                             # For ISS tracker
+
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
 
 
 # Install WiringPi
-cd /home/pi
+cd ~
 git clone https://github.com/WiringPi/WiringPi.git
 cd WiringPi
+rm -f ./debian-template/wiringpi*.deb   # Clear any old packages
+
+# Modify so that it installs on 32-bit buster
+cd wiringPi
+sed -i -e 's/\(\[\[gnu::packed\]\]\)//g' bcm_registers.h
+sed -i -e 's/\(\[\[gnu::packed\]\]\)//g' rp1_registers.h
+cd ~/WiringPi
+
 ./build debian
 
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
+# the below section doesn't work. So we're going to cheat and just install everyting from the debian-template directory,
 # Read latest WiringPi version number and install it
-vMaj=`cut -d. -f1 VERSION`
-vMin=`cut -d. -f2 VERSION`
-mv debian-template/wiringpi_"$vMaj"."$vMin"_armhf.deb .
-sudo apt install ./wiringpi_"$vMaj"."$vMin"_armhf.deb
+# vMaj=`cut -d. -f1 VERSION`
+# vMin=`cut -d. -f2 VERSION`
+#mv debian-template/wiringpi_"$vMaj"."$vMin"_armhf.deb .
+#sudo apt install ./wiringpi_"$vMaj"."$vMin"_armhf.deb
+
+sudo apt install ./debian-template/wiringpi_*.deb
 cd /home/pi
 
 # Install libiio for Pluto SigGen (and Langstone)
 cd /home/pi
 git clone https://github.com/analogdevicesinc/libiio.git
 cd libiio
+
+
 git reset --hard b6028fdeef888ab45f7c1dd6e4ed9480ae4b55e3  # Back to Version 0.25
+
 cmake ./
 make all
 sudo make install
 cd /home/pi
 
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
+
 # Install Websockets for Meteor Beacon RX server
-git clone https://github.com/warmcat/libwebsockets.git
+git clone -b v4.5-stable --single-branch https://github.com/warmcat/libwebsockets.git
 cd libwebsockets
 cmake ./
 make all
@@ -148,6 +204,11 @@ sudo make install
 sudo ldconfig
 cd /home/pi
 
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
 
 # Enable USB Storage automount in Buster
 echo
@@ -160,6 +221,12 @@ if ! grep -q PrivateMounts=no systemd-udevd.service; then
 fi
 
 cd /home/pi
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
 
 # Set auto login to command line.
 sudo raspi-config nonint do_boot_behaviour B2
@@ -195,7 +262,7 @@ echo
 echo "--------------------------------------------"
 echo "----- Downloading Portsdown 4 Software -----"
 echo "--------------------------------------------"
-wget https://github.com/${GIT_SRC}/portsdown4_ntsc/archive/master.zip
+wget https://github.com/${GIT_SRC}/portsdown4_NTSC/archive/refs/heads/master.zip -O master.zip
 
 # Unzip the rpidatv software and copy to the Pi
 unzip -o master.zip
@@ -203,17 +270,30 @@ mv portsdown4_NTSC-master rpidatv
 rm master.zip
 cd /home/pi
 
-
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
 # Install LimeSuite 22.09 as at 27 Feb 23
 # Commit 9c983d872e75214403b7778122e68d920d583add
 echo
 echo "--------------------------------------"
-echo "----- Installing LimeSuite 22.09 -----"
+echo "----- Installing LimeSuite  23.  -----"
 echo "--------------------------------------"
-wget https://github.com/myriadrf/LimeSuite/archive/9c983d872e75214403b7778122e68d920d583add.zip -O master.zip
+#legacy version/code
+# wget https://github.com/myriadrf/LimeSuite/archive/9c983d872e75214403b7778122e68d920d583add.zip -O master.zip
+
+wget https://github.com/myriadrf/LimeSuite/archive/refs/tags/v23.11.0.zip -O master.zip
+
 unzip -o master.zip
-cp -f -r LimeSuite-9c983d872e75214403b7778122e68d920d583add LimeSuite
-rm -rf LimeSuite-9c983d872e75214403b7778122e68d920d583add
+
+mv LimeSuite-23.11.0 LimeSuite
+
+#legacy version/code
+#cp -f -r LimeSuite-9c983d872e75214403b7778122e68d920d583add LimeSuite
+#rm -rf LimeSuite-9c983d872e75214403b7778122e68d920d583add
+
 rm master.zip
 
 # Compile LimeSuite
@@ -226,13 +306,20 @@ sudo make install
 sudo ldconfig
 cd /home/pi
 
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
+
 # Install udev rules for LimeSuite
 cd LimeSuite/udev-rules
 chmod +x install.sh
 sudo /home/pi/LimeSuite/udev-rules/install.sh
-cd /home/pi	
+cd /home/pi
 
-# Record the LimeSuite Version	
+# Record the LimeSuite Version
 echo "9c983d8" >/home/pi/LimeSuite/commit_tag.txt
 
 # Download the LimeSDR Mini firmware/gateware versions
@@ -241,40 +328,79 @@ echo "------------------------------------------------------"
 echo "----- Downloading LimeSDR Mini Firmware versions -----"
 echo "------------------------------------------------------"
 
-# Current LimeSDR Mini V1 Version from LimeSuite 22.09 
-mkdir -p /home/pi/.local/share/LimeSuite/images/22.09/
-wget https://downloads.myriadrf.org/project/limesuite/22.09/LimeSDR-Mini_HW_1.2_r1.30.rpd -O \
-               /home/pi/.local/share/LimeSuite/images/22.09/LimeSDR-Mini_HW_1.2_r1.30.rpd
+# OLD CODE STUFFS.
+
+
+# Current LimeSDR Mini V1 Version from LimeSuite 22.09
+#mkdir -p /home/pi/.local/share/LimeSuite/images/22.09/
+#wget https://downloads.myriadrf.org/project/limesuite/22.09/LimeSDR-Mini_HW_1.2_r1.30.rpd -O \
+#               /home/pi/.local/share/LimeSuite/images/22.09/LimeSDR-Mini_HW_1.2_r1.30.rpd
+
+# DVB-S/S2 Version
+#mkdir -p /home/pi/.local/share/LimeSuite/images/v0.3
+#wget https://github.com/natsfr/LimeSDR_DVBSGateware/releases/download/v0.3/LimeSDR-Mini_lms7_trx_HW_1.2_auto.rpd -O \
+# /home/pi/.local/share/LimeSuite/images/v0.3/LimeSDR-Mini_lms7_trx_HW_1.2_auto.rpd
+
+# Current LimeSDR Mini V2 Version from LimeSuite 23.11
+#wget https://downloads.myriadrf.org/project/limesuite/23.11/LimeSDR-Mini_HW_2.0_r2.2.bit -O \
+#               /home/pi/.local/share/LimeSuite/images/22.09/LimeSDR-Mini_HW_2.0_r2.2.bit
+
+
+
+
+# Current LimeSDR Mini V1 Version from LimeSuite 23.11
+mkdir -p /home/pi/.local/share/LimeSuite/images/23.11/
+wget https://downloads.myriadrf.org/project/limesuite/23.11/LimeSDR-Mini_HW_1.2_r1.30.rpd -O \
+               /home/pi/.local/share/LimeSuite/images/23.11/LimeSDR-Mini_HW_1.2_r1.30.rpd
 
 # DVB-S/S2 Version
 mkdir -p /home/pi/.local/share/LimeSuite/images/v0.3
 wget https://github.com/natsfr/LimeSDR_DVBSGateware/releases/download/v0.3/LimeSDR-Mini_lms7_trx_HW_1.2_auto.rpd -O \
  /home/pi/.local/share/LimeSuite/images/v0.3/LimeSDR-Mini_lms7_trx_HW_1.2_auto.rpd
 
-# Current LimeSDR Mini V2 Version from LimeSuite 23.11 
+# Current LimeSDR Mini V2 Version from LimeSuite 23.11
 wget https://downloads.myriadrf.org/project/limesuite/23.11/LimeSDR-Mini_HW_2.0_r2.2.bit -O \
-               /home/pi/.local/share/LimeSuite/images/22.09/LimeSDR-Mini_HW_2.0_r2.2.bit
+               /home/pi/.local/share/LimeSuite/images/23.11/LimeSDR-Mini_HW_2.0_r2.2.bit
+
+
+
 
 # Check that it was downloaded, if not, go to source and get it
 if [[ "$?" != "0" ]]; then
-  rm /home/pi/.local/share/LimeSuite/images/22.09/LimeSDR-Mini_HW_2.0_r2.2.bit
+  rm /home/pi/.local/share/LimeSuite/images/23.11/LimeSDR-Mini_HW_2.0_r2.2.bit
   wget https://github.com/myriadrf/LimeSDR-Mini-v2_GW/raw/main/LimeSDR-Mini_bitstreams/lms7_trx_impl1.bit -O \
-    /home/pi/.local/share/LimeSuite/images/22.09/LimeSDR-Mini_HW_2.0_r2.2.bit
+    /home/pi/.local/share/LimeSuite/images/23.11/LimeSDR-Mini_HW_2.0_r2.2.bit
 fi
 
-echo
-echo "--------------------------------------------------------------"
-echo "----- Downloading Portsdown 4 version of avc2ts Software -----"
-echo "--------------------------------------------------------------"
+#echo
+#echo "--------------------------------------------------------------"
+#echo "----- Downloading Portsdown 4 version of avc2ts Software -----"
+#echo "--------------------------------------------------------------"
 
-# Download the previously selected version of avc2ts for Portsdown 4
-cd /home/pi	
-wget https://github.com/BritishAmateurTelevisionClub/avc2ts/archive/refs/heads/portsdown4.zip
 
-# Unzip the avc2ts software and copy to the Pi
-unzip -o portsdown4.zip
-mv avc2ts-portsdown4 avc2ts
-rm portsdown4.zip
+#This app is going to be depricated in the NTSC version of portsdown.
+
+# Legacy avc2ts build is disabled; do not download an unused archive.
+#since the following isn't in use yet, and it breaks on the pi4+ remove it.
+
+#libyuv should be used for fast picture transformation : not yet implemented
+#git clone https://chromium.googlesource.com/libyuv/libyuv
+#cd libyuv
+#should patch linux.mk with -DHAVE_JPEG on CXX and CFLAGS
+#seems to be link with libjpeg9-dev
+#make V=1 -f linux.mk
+#cd ../
+
+# Required for ffmpegsrc.cpp
+sudo apt-get -y install libvncserver-dev libavcodec-dev libavformat-dev libswscale-dev libavdevice-dev
+
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
 
 # Compile rpidatv gui
 echo
@@ -283,50 +409,50 @@ echo "----- Compiling rpidatvtouch -----"
 echo "----------------------------------"
 cd /home/pi/rpidatv/src/gui
 make
-sudo make install
+make install
 
 # Build avc2ts and dependencies
-echo
-echo "--------------------------------------------"
-echo "----- Building avc2ts and dependencies -----"
-echo "--------------------------------------------"
+#echo
+#echo "--------------------------------------------"
+#echo "----- Building avc2ts and dependencies -----"
+#echo "--------------------------------------------"
 
 # For libmpegts
-cd /home/pi/avc2ts
-git clone https://github.com/F5OEO/libmpegts.git
-cd libmpegts
+#cd /home/pi/avc2ts
+#git clone https://github.com/F5OEO/libmpegts.git
+#cd libmpegts
 # Overwrite updated config version files 202307170
-cp /home/pi/rpidatv/scripts/configs/config.guess config.guess
-cp /home/pi/rpidatv/scripts/configs/config.sub config.sub
-./configure
-make
-cd ../
+#cp /home/pi/rpidatv/scripts/configs/config.guess config.guess
+#cp /home/pi/rpidatv/scripts/configs/config.sub config.sub
+#./configure
+#make
+#cd ../
 
 # For libfdkaac
-git clone https://github.com/mstorsjo/fdk-aac.git
-cd fdk-aac
+#git clone https://github.com/mstorsjo/fdk-aac.git
+#cd fdk-aac
 # Overwrite updated config version files 202307170
-cp /home/pi/rpidatv/scripts/configs/config.guess config.guess
-cp /home/pi/rpidatv/scripts/configs/config.sub config.sub
-./autogen.sh
-./configure
-make && sudo make install
-sudo ldconfig
-cd ../
+#cp /home/pi/rpidatv/scripts/configs/config.guess config.guess
+#cp /home/pi/rpidatv/scripts/configs/config.sub config.sub
+#./autogen.sh
+#./configure
+#make && sudo make install
+#sudo ldconfig
+#cd ../
 
 #libyuv should be used for fast picture transformation : not yet implemented
-git clone https://chromium.googlesource.com/libyuv/libyuv
-cd libyuv
+#git clone https://chromium.googlesource.com/libyuv/libyuv
+#cd libyuv
 #should patch linux.mk with -DHAVE_JPEG on CXX and CFLAGS
 #seems to be link with libjpeg9-dev
-make V=1 -f linux.mk
-cd ../
+#make V=1 -f linux.mk
+#cd ../
 
 # Make avc2ts
-cd /home/pi/avc2ts
-make
-cp avc2ts ../rpidatv/bin/
-cd /home/pi
+#cd /home/pi/avc2ts
+#make
+#cp avc2ts ../rpidatv/bin/
+#cd /home/pi
 
 echo
 echo "-----------------------------------------------"
@@ -377,7 +503,7 @@ make
 cp dvb2iq /home/pi/rpidatv/bin/
 cd /home/pi/rpidatv/src/limesdr_toolbox/
 
-make 
+make
 cp limesdr_send /home/pi/rpidatv/bin/
 cp limesdr_dump /home/pi/rpidatv/bin/
 cp limesdr_stopchannel /home/pi/rpidatv/bin/
@@ -386,7 +512,18 @@ make dvb
 cp limesdr_dvb /home/pi/rpidatv/bin/
 cd /home/pi
 
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
+
 # Install Muntjac
+
+#actually don't. It won't compile on 64bit and there are major issues here.
+:'
 echo
 echo "------------------------------"
 echo "----- Installing Muntjac -----"
@@ -395,12 +532,13 @@ echo "------------------------------"
 cd /home/pi/rpidatv/src/muntjac
 
 gcc  muntjacsdr_dvb.c  dvbs2neon.S  -mfpu=neon  -lpthread  -o  muntjacsdr_dvb
-gcc  mjcalib-0v1a.c  dvbs2neon.S  -mfpu=neon  -lpthread  -o mjcalib  # only used for manual calibration
+#gcc  mjcalib-0v1a.c  dvbs2neon.S  -mfpu=neon  -lpthread  -o mjcalib  # only used for manual calibration
 
 cp muntjacsdr_dvb /home/pi/rpidatv/bin/             # Executable
-cp E46214B063533828.mjo /home/pi/rpidatv/bin/       # LO Suppression file
 
 cd /home/pi
+
+'
 
 echo
 echo "----------------------------------"
@@ -417,13 +555,25 @@ sudo cp datvexpress16.ihx /lib/firmware/datvexpress/datvexpress16.ihx
 sudo cp datvexpressraw16.rbf /lib/firmware/datvexpress/datvexpressraw16.rbf
 cd /home/pi
 
+echo
+echo "-----------------------------------"
+echo "----- Installing dvb_t2_stack -----"
+echo "-----------------------------------"
+cd /home/pi/rpidatv/src/dvb_t2_stack
+make clean
+make -j $(nproc) PI4=1 dvb_t2_stack
+cp dvb_t2_stack /home/pi/rpidatv/bin/dvb_t2_stack
+cd /home/pi
+
 # Install LongMynd
 echo
 echo "--------------------------------------------"
 echo "----- Installing the LongMynd Receiver -----"
 echo "--------------------------------------------"
 cd /home/pi
-cp -r /home/pi/rpidatv/src/longmynd/ /home/pi/
+git clone https://github.com/myorangedragon/longmynd
+
+#cp -r /home/pi/rpidatv/src/longmynd/ /home/pi/
 cd longmynd
 make
 
@@ -431,6 +581,13 @@ make
 sudo cp minitiouner.rules /etc/udev/rules.d/
 
 cd /home/pi
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
 
 # Download, compile and install the executable for hardware shutdown button
 echo
@@ -463,6 +620,12 @@ sudo chown root /etc/wpa_supplicant/wpa_supplicant.conf
 
 # Disable Wifi on Initial Start
 cp ~/rpidatv/scripts/configs/text.wifi_off ~/.wifi_off >/dev/null 2>/dev/null
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
 
 # Compile the Signal Generator
 echo
@@ -471,7 +634,7 @@ echo "----- Compiling the Signal Generator -----"
 echo "------------------------------------------"
 cd /home/pi/rpidatv/src/siggen
 make
-sudo make install
+make install
 cd /home/pi
 
 # Compile adf4351
@@ -483,6 +646,13 @@ cd /home/pi/rpidatv/src/adf4351
 make
 cp adf4351 ../../bin/
 cd /home/pi
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
 
 # Compile Band Viewer
 echo
@@ -507,6 +677,14 @@ make
 cp airspyview ../../bin/
 cd /home/pi
 
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
+
 # Compile RTL-SDR Band Viewer
 echo
 echo "----------------------------------------"
@@ -516,6 +694,14 @@ cd /home/pi/rpidatv/src/rtlsdrview
 make
 cp rtlsdrview ../../bin/
 cd /home/pi
+
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
 
 # Compile Pluto Band Viewer
 echo
@@ -527,7 +713,7 @@ make
 cp plutoview ../../bin/
 cd /home/pi
 
-# For Metoeorview and sdrplayview
+# For Meteorview and sdrplayview
 # Download sdrplay api for install after first reboot
 echo
 echo "---------------------------------------"
@@ -536,8 +722,8 @@ echo "---------------------------------------"
 cd /home/pi/rpidatv/src/meteorview
 
 # Download api
-wget https://www.sdrplay.com/software/SDRplay_RSP_API-ARM-3.09.1.run
-chmod +x SDRplay_RSP_API-ARM-3.09.1.run
+wget https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.12.1.run
+chmod +x SDRplay_RSP_API-Linux-3.12.1.run
 
 # Create file to trigger install on next reboot
 touch /home/pi/rpidatv/.post-install_actions
@@ -552,6 +738,12 @@ cd /home/pi/rpidatv/src/power_meter
 make
 cp power_meter ../../bin/
 cd /home/pi
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
 
 # Compile Lime NF Meter
 echo
@@ -592,6 +784,12 @@ cd /home/pi/rpidatv/src/dmm
 make
 cp dmm ../../bin/
 cd /home/pi
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
+
 
 # Compile LimeSDR Noise Meter
 echo
@@ -649,10 +847,11 @@ cd /home/pi
 #echo "-----------------------------------------"
 #echo "----- Compiling Ancilliary programs -----"
 #echo "-----------------------------------------"
-
-
-
-
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
 
 # Compile and install the executable for GPIO-switched transmission (201710080)
 cd /home/pi/rpidatv/src/keyedtx
@@ -703,7 +902,11 @@ cd raspi2png
 make
 sudo make install
 cd /home/pi
-
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
 echo
 echo "--------------------------------------"
 echo "----- Configure the Menu Aliases -----"
@@ -720,7 +923,7 @@ echo "alias stop='/home/pi/rpidatv/scripts/utils/stop.sh'"  >> /home/pi/.bash_al
 #cd /home/pi
 #sed -i 's|/home/pi/Langstone/run|source /home/pi/rpidatv/scripts/startup.sh|' .bashrc
 
-echo if test -z \"\$SSH_CLIENT\" >> ~/.bashrc 
+echo if test -z \"\$SSH_CLIENT\" >> ~/.bashrc
 echo then >> ~/.bashrc
 echo "source /home/pi/rpidatv/scripts/startup.sh" >> ~/.bashrc
 echo fi >> ~/.bashrc
@@ -740,7 +943,24 @@ fi
 # Configure the nginx web server
 cp -r /home/pi/rpidatv/scripts/configs/webroot /home/pi/webroot
 sudo cp /home/pi/rpidatv/scripts/configs/nginx.conf /etc/nginx/nginx.conf
+sudo chmod o+rx /home/pi
 
+chgrp www-data /home/pi/webroot -R
+sudo chmod o+rx /home/pi/webroot -R
+sudo chmod o+rx /home/pi/snaps -R
+sudo chmod o+rx /home/pi/tmp -R
+
+sudo chmod g+rx /home/pi/webroot -R
+sudo chmod g+rx /home/pi/snaps -R
+sudo chmod g+rx /home/pi/tmp -R
+
+
+
+  read -n1 -r -s key;
+  if [[ $key == q ]]; then
+    exit 1;
+  fi
+  echo "ok!";
 # Create a directory for IQ files 202403250
 mkdir /home/pi/iqfiles
 
@@ -763,6 +983,5 @@ echo "----- Complete.  Rebooting -----"
 echo "--------------------------------"
 sleep 1
 
-sudo reboot now
+#sudo reboot now
 exit
-

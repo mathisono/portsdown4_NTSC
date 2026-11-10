@@ -1,3 +1,115 @@
+202611010
+Enable GPIO pin 21 on use of Pluto Test Equipment
+Add locator and time to ISS tracking screen
+Clarify Pluto firmware version display
+Add dedicated bandwidth options for DVB-T2
+
+202610280
+Add CMT2119A (G4EML MicroSynth) to SigGen
+
+202610180
+Refine Lime DVB-T2 Transmit Capability
+Restore old download address for SDRplay API
+Update Muntjac files
+
+202610070
+Add DVB-T2 Transmit Capability
+
+202609300
+Enable MeteorViewer Local Mode with no internet
+
+202609163
+Bugfix WiringPi install
+Include new avc2ts
+
+202608200
+Update SDRplay api download address
+
+202607290
+Add more Muntjac cal files
+
+202606200
+Correct libwebsockets install for MeteorViewer
+
+202605240
+Add carrier transmit mode for Muntjac
+
+202605220
+Bugfix exit from test equipment apps with markers on
+Update to Muntjac 1v0u
+Add more Muntjac cal files
+
+202605070
+Correct Muntjac gain format
+
+202605060
+Update Muntjac files
+
+202604270
+Muntjac Production Build
+
+202604240
+Bugfix libwebsockets install for MeteorViewer
+
+202604200
+Bugfix ISS Tracker Install
+
+202604190
+Add ISS rotator Position Display
+
+202604160
+Improve Muntjac Integration
+Add initial ISS tracking Rotator Control
+Improve handling of port 2005 lockout
+
+202603310
+Enable Pluto Pi Cam with no audio device and auto selected
+Add HD test cards for Pluto
+
+202603140
+Preserve network config through updates
+Enable fixed ip netmask to be set
+
+202603110
+Add Network Menu and Fixed IP Entry
+
+202603090
+Install DHCP server for standalone LibreSDR
+
+202603030
+Bugfix LibreSDR IP Setting
+
+202603010
+Add support for Libre SDR with DL1JM/PA2JSA firmware
+
+202601020
+Update Muntjac to V1.0
+
+202512231
+Correct OOK48 Test Source
+
+202512230
+Tidy Muntjac Functionality
+Add experimental OOK48 Beacon
+
+202512140
+Amend the sources.list to legacy
+
+202511050
+Correct Pluto Firmware Check
+Disconnect from HamTV merger if log-in parameters changed
+
+202510220
+MER Display and Pluto firmware
+
+202510040
+Correct Displayed HamTV Frequency
+Add NF Meters to saved USB parameters
+
+202510030
+Correct HamTV Test Port and add LNB Volts Option
+Preserve NF Meter settings through updates and allow save to USB
+
 202509170
 Add invert touchscreen option to SSH Console menu
 

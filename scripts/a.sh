@@ -97,6 +97,7 @@ MODE_STARTUP=$(get_config_var startup $PCONFIGFILE)
 LKVUDP=$(get_config_var lkvudp $JCONFIGFILE)
 LKVPORT=$(get_config_var lkvport $JCONFIGFILE)
 PLUTOIP=$(get_config_var plutoip $PCONFIGFILE)
+LIBREIP=$(get_config_var libreip $PCONFIGFILE)
 
 OUTPUT_IP=""
 LIMETYPE=""
@@ -281,6 +282,27 @@ case "$MODE_OUTPUT" in
     else
       PLUTOCALL=",${CALL}"
     fi
+  ;;
+
+  LIBRESDR)
+    PLUTOPWR=$(get_config_var plutopwr $PCONFIGFILE)
+
+    # Add an extra / to the beginning of the Pluto call if required to cope with /P
+    echo $CALL | grep -q "/"
+    if [ $? == 0 ]; then
+      PLUTOCALL="/,${CALL}"
+    else
+      PLUTOCALL=",${CALL}"
+    fi
+
+    # Set the LibreSDR IP Address
+    if [ "$LIBREIP" == "dhcp" ]; then
+      PLUTOIP=libre
+    else
+      PLUTOIP=$LIBREIP
+    fi
+
+    MODE_OUTPUT=PLUTO
   ;;
 
   DATVEXPRESS)
@@ -474,7 +496,7 @@ fi
 IDRPERIOD=100
 
 
-# Set the SDR Up-sampling rate and correct gain for Lime Modes
+# Set the SDR Up-sampling rate and correct gain
 case "$MODE_OUTPUT" in
   "LIMEMINI" | "LIMEUSB" | "LIMEDVB" | "JLIME" | "JEXPRESS")
 
@@ -568,7 +590,26 @@ case "$MODE_OUTPUT" in
     fi
   ;;
   "MUNTJAC")
-    MUNTJAC_GAINF=`echo - | awk '{print '$MUNTJAC_GAIN' / 100}'`
+    # Equalise Carrier Mode Level for Muntjac
+    if [ "$MODE_INPUT" == "CARRIER" ]; then
+      if [ "$MUNTJAC_GAIN" -eq "0" ]; then
+        MUNTJAC_GAIN="0"
+      else
+        MUNTJAC_GAIN=`echo - | awk '{print ( '$MUNTJAC_GAIN' - 1 )}'`
+      fi
+    fi
+
+    # Force 3-digit Muntjac gain (x.xx)
+    if [ "$MUNTJAC_GAIN" -eq "0" ]; then
+      MUNTJAC_GAINF="0.00"
+    elif [ "$MUNTJAC_GAIN" -eq "10" ]; then
+      MUNTJAC_GAINF="0.10"
+    elif [ "$MUNTJAC_GAIN" -eq "20" ]; then
+      MUNTJAC_GAINF="0.20"
+    else
+      MUNTJAC_GAINF=`echo - | awk '{print '$MUNTJAC_GAIN' / 100}'`
+    fi
+
     UPSAMPLE=2
   ;;
 esac
@@ -589,8 +630,13 @@ mkfifo audioin.wav
 
 OUTPUT_FILE="-o videots"
 
-# Branch to custom file to calculate DVB-T bitrate
+# Branch to custom file to calculate DVB-T/T2 bitrate and set app
 if [ "$MODULATION" == "DVB-T" ]; then
+  DVBT_STACK=/home/pi/rpidatv/bin/dvb_t_stack
+  source /home/pi/rpidatv/scripts/a_dvb-t.sh
+fi
+if [ "$MODULATION" == "DVB-T2" ]; then
+  DVBT_STACK=/home/pi/rpidatv/bin/dvb_t2_stack
   source /home/pi/rpidatv/scripts/a_dvb-t.sh
 fi
 
@@ -616,9 +662,9 @@ case "$MODE_INPUT" in
       exit
     fi
 
-    ################# Pluto Code for DVB-S and DVB-S2 (not DVB-T)
+    ################# Pluto Code for DVB-S and DVB-S2 (not DVB-T/T2)
 
-    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "CAMH264" ] && [ "$MODULATION" != "DVB-T" ]; then
+    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "CAMH264" ] && [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then
 
       # Make sure that Pi Cam driver is loaded
       sudo modprobe bcm2835_v4l2
@@ -646,7 +692,8 @@ case "$MODE_INPUT" in
       v4l2-ctl -d $VID_PICAM --set-fmt-overlay=left=0,top=0,width=736,height=416 --overlay 1 # For 800x480 framebuffer
       v4l2-ctl -d $VID_PICAM -p $VIDEO_FPS
 
-      if [ "$AUDIO_CARD" == "0" ] && [ "$AUDIO_CHANNELS" == "0" ]; then
+      if ([ "$AUDIO_CARD" == "0" ] && [ "$AUDIO_CHANNELS" == "0" ]) \
+      || ([ "$AUDIO_CARD" == "0" ] && [ "$AUDIO_PREF" == "auto" ]); then
 
         ############### Pi Cam Pluto No Audio ######################
 
@@ -657,7 +704,23 @@ case "$MODE_INPUT" in
           -f flv \
           rtmp://$PLUTOIP:7272/,$FREQ_OUTPUT,$MODTYPE,$CONSTLN,$SYMBOLRATE_K,$PFEC,-$PLUTOPWR,nocalib,800,32,/$PLUTOCALL, &
 
-      else
+      elif [ "$AUDIO_PREF" == "bleeps" ]; then
+
+        ############### Pi Cam Pluto With Bleeps ######################
+
+        rpidatv/bin/ffmpeg -thread_queue_size 2048 \
+          -f v4l2 -input_format h264 -video_size "$VIDEO_WIDTH"x"$VIDEO_HEIGHT" \
+          -i $VID_PICAM \
+          \
+          -f lavfi -ac 1 \
+          -i "sine=frequency=500:beep_factor=4:sample_rate=44100:duration=0" \
+          \
+          -c:v h264_omx -b:v $BITRATE_VIDEO -g 25 \
+          -ar 22050 -ac $AUDIO_CHANNELS -ab 64k \
+          -f flv \
+          rtmp://$PLUTOIP:7272/,$FREQ_OUTPUT,$MODTYPE,$CONSTLN,$SYMBOLRATE_K,$PFEC,-$PLUTOPWR,nocalib,800,32,/$PLUTOCALL, &
+
+       else
 
         ############### Pi Cam Pluto With Audio ######################
 
@@ -677,7 +740,7 @@ case "$MODE_INPUT" in
       exit
     fi
 
-    ################# Lime, DATV Express and DVB-T Code #################################
+    ################# Lime, DATV Express and DVB-T/T2 Code #################################
 
       if [ "$FORMAT" == "720p" ] ; then
         VIDEO_WIDTH=1280
@@ -694,7 +757,7 @@ case "$MODE_INPUT" in
     # Free up Pi Camera for direct OMX Coding by removing driver
     sudo modprobe -r bcm2835_v4l2
 
-    if [ "$MODULATION" != "DVB-T" ]; then
+    if [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then
 
     # Set up the means to transport the stream out of the unit
     case "$MODE_OUTPUT" in
@@ -722,7 +785,8 @@ case "$MODE_INPUT" in
       ;;
     esac
 
-    else
+    else  ################ DVB-T/T2 Code #################################
+
       OUTPUT_FILE=""
       case "$MODE_OUTPUT" in
         "IP")
@@ -730,12 +794,12 @@ case "$MODE_INPUT" in
         ;;
         "PLUTO")
            OUTPUT_IP="-n 127.0.0.1:1314"
-          /home/pi/rpidatv/bin/dvb_t_stack -m $CONSTLN -f $FREQ_OUTPUTHZ -a -"$PLUTOPWR" -r pluto \
+          $DVBT_STACK -m $CONSTLN -f $FREQ_OUTPUTHZ -a -"$PLUTOPWR" -r pluto \
             -g 1/"$GUARD" -b $SYMBOLRATE -p 1314 -e "$FECNUM"/"$FECDEN" -n $PLUTOIP -i /dev/null &
         ;;
         "LIMEMINI" | "LIMEUSB")
           OUTPUT_IP="-n 127.0.0.1:1314"
-          /home/pi/rpidatv/bin/dvb_t_stack -m $CONSTLN -f $FREQ_OUTPUTHZ -a $LIME_GAINF -r lime \
+          $DVBT_STACK -m $CONSTLN -f $FREQ_OUTPUTHZ -a $LIME_GAINF -r lime \
             -g 1/"$GUARD" -b $SYMBOLRATE -p 1314 -e "$FECNUM"/"$FECDEN" -n $PLUTOIP -i /dev/null &
         ;;
       esac
@@ -948,7 +1012,7 @@ fi
 
     ##################### Pluto Code ##############################
 
-    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "WEBCAMH264" ] && [ "$MODULATION" != "DVB-T" ]; then
+    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "WEBCAMH264" ] && [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then
 
       # Set default format to catch undocumented webcams (note mono audio at 48K sample rate)
       INPUT_FORMAT="yuyv422"
@@ -1072,7 +1136,7 @@ fi
       SCALE=""
 
 
-    if [ "$MODE_INPUT" == "ANALOGCAM" ] && [ "$MODULATION" != "DVB-T" ]; then
+    if [ "$MODE_INPUT" == "ANALOGCAM" ] && [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then
       # Set the EasyCap input and video standard
       if [ "$ANALOGCAMINPUT" != "-" ]; then
         v4l2-ctl -d $ANALOGCAMNAME "--set-input="$ANALOGCAMINPUT
@@ -1222,7 +1286,7 @@ fi
       sudo modprobe -r bcm2835_v4l2
     fi    
 
-    if [ "$MODULATION" != "DVB-T" ]; then      ## For DVB-S and DVB-S2
+    if [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then      ## For DVB-S and DVB-S2
       # Set up means to transport of stream out of unit
       case "$MODE_OUTPUT" in
         "IP")
@@ -1244,7 +1308,9 @@ fi
           sudo $PATHRPI"/rpidatv" -i videots -s $SYMBOLRATE_K -c $FECNUM"/"$FECDEN -f $FREQUENCY_OUT -p $GAIN -m $MODE -x $PIN_I -y $PIN_Q &
         ;;
       esac
-    else                                      ######### DVB-T
+
+    else                                      ######### DVB-T/T2
+
       OUTPUT_FILE=""
       case "$MODE_OUTPUT" in
         "IP")
@@ -1252,12 +1318,12 @@ fi
         ;;
         "PLUTO")
           OUTPUT_IP="-n 127.0.0.1:1314"
-          /home/pi/rpidatv/bin/dvb_t_stack -m $CONSTLN -f $FREQ_OUTPUTHZ -a -"$PLUTOPWR" -r pluto \
+          $DVBT_STACK -m $CONSTLN -f $FREQ_OUTPUTHZ -a -"$PLUTOPWR" -r pluto \
             -g 1/"$GUARD" -b $SYMBOLRATE -p 1314 -e "$FECNUM"/"$FECDEN" -n $PLUTOIP -i /dev/null &
         ;;
         "LIMEMINI" | "LIMEUSB")
           OUTPUT_IP="-n 127.0.0.1:1314"
-          /home/pi/rpidatv/bin/dvb_t_stack -m $CONSTLN -f $FREQ_OUTPUTHZ -a $LIME_GAINF -r lime \
+          $DVBT_STACK -m $CONSTLN -f $FREQ_OUTPUTHZ -a $LIME_GAINF -r lime \
             -g 1/"$GUARD" -b $SYMBOLRATE -p 1314 -e "$FECNUM"/"$FECDEN" -i /dev/null &
         ;;
       esac
@@ -1284,7 +1350,7 @@ fi
 
       if [ "$MODE_OUTPUT" == "IP" ]; then
         H264_OUTPUT="udp://$UDPOUTADDR:$UDPOUTPORT?pkt_size=1316"
-      elif [ "$MODULATION" == "DVB-T" ] && [ -n "$OUTPUT_IP" ]; then
+      elif { [ "$MODULATION" == "DVB-T" ] || [ "$MODULATION" == "DVB-T2" ]; } && [ -n "$OUTPUT_IP" ]; then
         H264_TARGET=${OUTPUT_IP#-n}
         H264_TARGET=${H264_TARGET# }
         H264_OUTPUT="udp://$H264_TARGET?pkt_size=1316"
@@ -1378,11 +1444,39 @@ fi
 
     ############ Pluto CardH264 ##################################
 
-    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "CARDH264" ] && [ "$MODULATION" != "DVB-T" ]; then
+    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "CARDH264" ] && [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then
 
-      if  [ "$FORMAT" == "720p" ] || [ "$FORMAT" == "1080p" ]; then
+      if [ "$FORMAT" == "1080p" ]; then
+        VIDEO_WIDTH=1920
+        VIDEO_HEIGHT=1080
+        if [ "$CAPTIONON" == "on" ]; then
+          rm /home/pi/tmp/caption.png >/dev/null 2>/dev/null
+          rm /home/pi/tmp/tcf10802.jpg >/dev/null 2>/dev/null
+          convert -font "FreeSans" -size 1920x100 xc:transparent -fill white -gravity Center -pointsize 100 -annotate 0 $CALL /home/pi/tmp/caption.png
+          convert /home/pi/rpidatv/scripts/images/tcf1080.jpg /home/pi/tmp/caption.png -geometry +0+917 -composite /home/pi/tmp/tcf10802.jpg
+          IMAGEFILE="/home/pi/tmp/tcf10802.jpg"
+          sudo fbi -T 1 -noverbose -a /home/pi/tmp/tcf10802.jpg >/dev/null 2>/dev/null
+        else
+          IMAGEFILE="/home/pi/rpidatv/scripts/images/tcf1080.jpg"
+          sudo fbi -T 1 -noverbose -a /home/pi/rpidatv/scripts/images/tcf1080.jpg >/dev/null 2>/dev/null
+        fi
+      elif [ "$FORMAT" == "720p" ]; then
         VIDEO_WIDTH=1280
         VIDEO_HEIGHT=720
+        if [ "$CAPTIONON" == "on" ]; then
+          rm /home/pi/tmp/caption.png >/dev/null 2>/dev/null
+          rm /home/pi/tmp/tcfw2.jpg >/dev/null 2>/dev/null
+          convert -font "FreeSans" -size 1280x80 xc:transparent -fill white -gravity Center -pointsize 65 -annotate 0 $CALL /home/pi/tmp/caption.png
+          convert /home/pi/rpidatv/scripts/images/tcfw.jpg /home/pi/tmp/caption.png -geometry +0+604 -composite /home/pi/tmp/tcfw2.jpg
+          IMAGEFILE="/home/pi/tmp/tcfw2.jpg"
+          sudo fbi -T 1 -noverbose -a /home/pi/tmp/tcfw2.jpg >/dev/null 2>/dev/null
+        else
+          IMAGEFILE="/home/pi/rpidatv/scripts/images/tcfw.jpg"
+          sudo fbi -T 1 -noverbose -a "$IMAGEFILE" >/dev/null 2>/dev/null
+        fi
+      elif [ "$FORMAT" == "16:9" ]; then
+        VIDEO_WIDTH=1024
+        VIDEO_HEIGHT=576
         if [ "$CAPTIONON" == "on" ]; then
           rm /home/pi/tmp/caption.png >/dev/null 2>/dev/null
           rm /home/pi/tmp/tcfw162.jpg >/dev/null 2>/dev/null
@@ -1405,8 +1499,8 @@ fi
           IMAGEFILE="/home/pi/tmp/tcf2.jpg"
           sudo fbi -T 1 -noverbose -a /home/pi/tmp/tcf2.jpg >/dev/null 2>/dev/null
         else
-          IMAGEFILE="/home/pi/rpidatv/script/images/tcf.jpg"
-          sudo fbi -T 1 -noverbose -a /home/pi/rpidatv/scripts/images/tcf.jpg >/dev/null 2>/dev/null
+          IMAGEFILE="/home/pi/rpidatv/scripts/images/tcf.jpg"
+          sudo fbi -T 1 -noverbose -a "$IMAGEFILE" >/dev/null 2>/dev/null
         fi
       fi
 
@@ -1428,7 +1522,7 @@ fi
 
     ############ Pluto Contest ##################################
 
-    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "CONTEST" ] && [ "$MODULATION" != "DVB-T" ]; then
+    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "CONTEST" ] && [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then
 
       # Delete the old numbers image
       rm /home/pi/tmp/contest.jpg >/dev/null 2>/dev/null
@@ -1468,7 +1562,7 @@ fi
     ############ Pluto Desktop ##################################
 
 
-    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "DESKTOP" ] && [ "$MODULATION" != "DVB-T" ]; then
+    if [ "$MODE_OUTPUT" == "PLUTO" ] && [ "$MODE_INPUT" == "DESKTOP" ] && [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then
 
       # Grab an image of the desktop
       rm /home/pi/tmp/desktop.jpg >/dev/null 2>/dev/null
@@ -1575,7 +1669,7 @@ fi
 
     # Set up means to transport of stream out of unit
 
-    if [ "$MODULATION" != "DVB-T" ]; then
+    if [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then
       case "$MODE_OUTPUT" in
         "IP")
           OUTPUT_FILE=""
@@ -1599,7 +1693,7 @@ fi
           sudo nice -n -30 $PATHRPI"/rpidatv" -i videots -s $SYMBOLRATE_K -c $FECNUM"/"$FECDEN -f $FREQUENCY_OUT -p $GAIN -m $MODE -x $PIN_I -y $PIN_Q &
         ;;
       esac
-    else                     # DVB-T
+    else                     # DVB-T/T2
       OUTPUT_FILE=""
       case "$MODE_OUTPUT" in
         "IP")
@@ -1607,12 +1701,12 @@ fi
         ;;
         "PLUTO")
           OUTPUT_IP="-n 127.0.0.1:1314"
-          /home/pi/rpidatv/bin/dvb_t_stack -m $CONSTLN -f $FREQ_OUTPUTHZ -a -"$PLUTOPWR" -r pluto \
+          $DVBT_STACK -m $CONSTLN -f $FREQ_OUTPUTHZ -a -"$PLUTOPWR" -r pluto \
             -g 1/"$GUARD" -b $SYMBOLRATE -p 1314 -e "$FECNUM"/"$FECDEN" -n $PLUTOIP -i /dev/null &
         ;;
         "LIMEMINI" | "LIMEUSB")
           OUTPUT_IP="-n 127.0.0.1:1314"
-          /home/pi/rpidatv/bin/dvb_t_stack -m $CONSTLN -f $FREQ_OUTPUTHZ -a $LIME_GAINF -r lime \
+          $DVBT_STACK -m $CONSTLN -f $FREQ_OUTPUTHZ -a $LIME_GAINF -r lime \
             -g 1/"$GUARD" -b $SYMBOLRATE -p 1314 -e "$FECNUM"/"$FECDEN" -i /dev/null &
         ;;
       esac
@@ -1644,7 +1738,7 @@ fi
     # Turn off the viewfinder (which would show Pi Cam)
     v4l2-ctl --overlay=0
 
-    if [ "$MODULATION" != "DVB-T" ]; then
+    if [ "$MODULATION" != "DVB-T" ] && [ "$MODULATION" != "DVB-T2" ]; then
       # Set up means to transport of stream out of unit
       case "$MODE_OUTPUT" in
         "DATVEXPRESS")
@@ -1698,15 +1792,15 @@ fi
           -mpegts_service_type "0x1f" -mpegts_flags system_b \
           -muxrate $BITRATE_TS -y $OUTPUT &
       fi
-    else  # DVB-T
+    else  # DVB-T/T2
       case "$MODE_OUTPUT" in
         "PLUTO")
-          /home/pi/rpidatv/bin/dvb_t_stack -m $CONSTLN -f $FREQ_OUTPUTHZ -a -"$PLUTOPWR" -r pluto \
+          $DVBT_STACK -m $CONSTLN -f $FREQ_OUTPUTHZ -a -"$PLUTOPWR" -r pluto \
             -g 1/"$GUARD" -b $SYMBOLRATE -p $UDPINPORT -e "$FECNUM"/"$FECDEN" -n $PLUTOIP -i /dev/null &
         ;;
         "LIMEMINI" | "LIMEUSB")
           OUTPUT_IP="-n 127.0.0.1:1314"
-          /home/pi/rpidatv/bin/dvb_t_stack -m $CONSTLN -f $FREQ_OUTPUTHZ -a $LIME_GAINF -r lime \
+          $DVBT_STACK -m $CONSTLN -f $FREQ_OUTPUTHZ -a $LIME_GAINF -r lime \
             -g 1/"$GUARD" -b $SYMBOLRATE -p $UDPINPORT -e "$FECNUM"/"$FECDEN" -i /dev/null &
         ;;
       esac
@@ -1763,6 +1857,9 @@ fi
       let DIGITAL_GAIN=6  # To equalise levels with normal DVB-S2 +/- 2 dB
       $PATHRPI"/limesdr_dvb" -s 1000000 -f carrier -r 1 -m DVBS2 -c QPSK \
         -t "$FREQ_OUTPUT"e6 -g $LIME_GAINF -q $CAL $CUSTOM_FPGA -D $DIGITAL_GAIN -e $BAND_GPIO &
+      ;;
+      "MUNTJAC")
+        $PATHRPI"/muntjacsdr_dvb" -f carrier -t "$FREQ_OUTPUT"e6 -g $MUNTJAC_GAINF &
       ;;
       "PLUTO")
         # Put Pluto carrier code here
@@ -2000,7 +2097,7 @@ exit
 
         # ******************************* MPEG-2 ANALOG VIDEO WITH BEEP ************************************
 
-        sudo nice -n -30 $PATHRPI"/ffmpeg" -loglevel $MODE_DEBUG -itsoffset "$ITS_OFFSET"\
+        sudo nice -n -30 ffmpeg -loglevel $MODE_DEBUG -itsoffset "$ITS_OFFSET"\
           -analyzeduration 0 -probesize 2048  -fpsprobesize 0 -thread_queue_size 512\
           -f v4l2 -framerate $VIDEO_FPS -video_size "$VIDEO_WIDTH"x"$VIDEO_HEIGHT"\
           -i $VID_USB -fflags nobuffer \
@@ -2162,7 +2259,7 @@ exit
 
         # No code for beeps here
         if [ "$AUDIO_CARD" == 0 ]; then
-          $PATHRPI"/ffmpeg" -loglevel $MODE_DEBUG -thread_queue_size 2048 \
+          ffmpeg -loglevel $MODE_DEBUG -thread_queue_size 2048 \
             -f image2 -loop 1 \
             -i $IMAGEFILE \
             -framerate 29.97 -video_size "$VIDEO_WIDTH"x"$VIDEO_HEIGHT" -c:v h264_omx -b:v 576k \
@@ -2170,7 +2267,7 @@ exit
             \
             -f flv $STREAM_URL/$STREAM_KEY &
         else
-          $PATHRPI"/ffmpeg" -loglevel $MODE_DEBUG -itsoffset "$ITS_OFFSET" \
+          ffmpeg -loglevel $MODE_DEBUG -itsoffset "$ITS_OFFSET" \
             -f image2 -loop 1 \
             -i $IMAGEFILE \
             \
@@ -2187,7 +2284,7 @@ exit
 
           # ******************************* MPEG-2 CARD WITH NO AUDIO ************************************
 
-          sudo nice -n -30 $PATHRPI"/ffmpeg" -loglevel $MODE_DEBUG \
+          sudo nice -n -30 ffmpeg -loglevel $MODE_DEBUG \
             -re -loop 1 \
             -framerate 5 -video_size "$VIDEO_WIDTH"x"$VIDEO_HEIGHT" \
             -i $IMAGEFILE \
@@ -2204,7 +2301,7 @@ exit
 
           # ******************************* MPEG-2 CARD WITH BEEP ************************************
 
-          sudo nice -n -30 $PATHRPI"/ffmpeg" -loglevel $MODE_DEBUG \
+          sudo nice -n -30 ffmpeg -loglevel $MODE_DEBUG \
             -re -loop 1 \
             -framerate 5 -video_size "$VIDEO_WIDTH"x"$VIDEO_HEIGHT" \
             -i $IMAGEFILE \
@@ -2227,7 +2324,7 @@ exit
           # PCR PID ($PIDSTART) seems to be fixed as the same as the video PID.  
           # PMT, Vid and Audio PIDs can all be set. nice -n -30 
 
-          sudo $PATHRPI"/ffmpeg" -loglevel $MODE_DEBUG -itsoffset "$ITS_OFFSET" \
+          sudo ffmpeg -loglevel $MODE_DEBUG -itsoffset "$ITS_OFFSET" \
             -thread_queue_size 512 \
             -re -loop 1 \
             -framerate 5 -video_size "$VIDEO_WIDTH"x"$VIDEO_HEIGHT" \
@@ -2331,7 +2428,7 @@ Echo  "line 2232"
           boxborderw=5: x=w/20: y=(h/8-text_h)/2,"
 
         # Audio does not yet work
-        $PATHRPI"/ffmpeg" -loglevel $MODE_DEBUG -thread_queue_size 2048 \
+        ffmpeg -loglevel $MODE_DEBUG -thread_queue_size 2048 \
           -f v4l2 \
           -i $VID_WEBCAM \
           -c:v h264_omx -b:v 1024k \
@@ -2359,8 +2456,16 @@ Echo  "line 2232"
           sudo nice -n -30 netcat -u -4 127.0.0.1 1314 < videots &
         ;;
         "LIMEMINI" | "LIMEUSB" | "LIMEDVB")
-          $PATHRPI"/limesdr_dvb" -i videots -s "$SYMBOLRATE_K"000 -f $FECNUM/$FECDEN -r $UPSAMPLE -m $MODTYPE -c $CONSTLN $PILOTS $FRAMES \
-            -t "$FREQ_OUTPUT"e6 -g $LIME_GAINF -q $CAL $CUSTOM_FPGA -D $DIGITAL_GAIN -e $BAND_GPIO $LIMETYPE &
+
+          if [ "$MODULATION" == "DVB-T" ] || [ "$MODULATION" == "DVB-T2" ]; then
+            OUTPUT_IP="-n 127.0.0.1:1314"
+            OUTPUT_FILE=""
+            $DVBT_STACK -m $CONSTLN -f $FREQ_OUTPUTHZ -a $LIME_GAINF -r lime \
+              -g 1/"$GUARD" -b $SYMBOLRATE -p 1314 -e "$FECNUM"/"$FECDEN" -n $PLUTOIP -i /dev/null &
+          else
+            $PATHRPI"/limesdr_dvb" -i videots -s "$SYMBOLRATE_K"000 -f $FECNUM/$FECDEN -r $UPSAMPLE -m $MODTYPE -c $CONSTLN $PILOTS $FRAMES \
+              -t "$FREQ_OUTPUT"e6 -g $LIME_GAINF -q $CAL $CUSTOM_FPGA -D $DIGITAL_GAIN -e $BAND_GPIO $LIMETYPE &
+          fi
         ;;
         "MUNTJAC")
           $PATHRPI"/muntjacsdr_dvb" -i videots -s "$SYMBOLRATE_K"000 -f $FECNUM/$FECDEN -r $UPSAMPLE -m $MODTYPE -c $CONSTLN $PILOTS $FRAMES \

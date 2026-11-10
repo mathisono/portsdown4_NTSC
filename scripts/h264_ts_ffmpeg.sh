@@ -20,6 +20,8 @@ Options:
   --service-id ID          MPEG-TS service ID (default: 1)
   --service-name NAME      DVB service name (default: Portsdown)
   --gop FRAMES             Maximum GOP length (default: 60)
+  --video-encoder MODE      software (libx264, default), hardware (Pi V4L2 M2M),
+                           or auto (probe hardware, otherwise use libx264)
   --deinterlace            Deinterlace analog capture before encoding
   --duration SECONDS       Stop after this duration (useful for offline tests)
 EOF
@@ -43,12 +45,13 @@ pmt_pid=255
 service_id=1
 service_name=Portsdown
 gop=60
+video_encoder=software
 duration=
 deinterlace=false
 
 while (($#)); do
   case "$1" in
-    --source|--output|--standard|--size|--video-bitrate|--muxrate|--audio-device|--audio-bitrate|--audio-channels|--audio-rate|--pmt-pid|--service-id|--service-name|--gop|--duration)
+    --source|--output|--standard|--size|--video-bitrate|--muxrate|--audio-device|--audio-bitrate|--audio-channels|--audio-rate|--pmt-pid|--service-id|--service-name|--gop|--video-encoder|--duration)
       need_value "$@"
       case "$1" in
         --source) source_device=$2;;
@@ -65,6 +68,7 @@ while (($#)); do
         --service-id) service_id=$2;;
         --service-name) service_name=$2;;
         --gop) gop=$2;;
+        --video-encoder) video_encoder=$2;;
         --duration) duration=$2;;
       esac
       shift 2;;
@@ -95,6 +99,34 @@ if [[ -n "$audio_device" ]]; then
 fi
 
 command -v ffmpeg >/dev/null || fail 'ffmpeg is required'
+
+# FFmpeg listing h264_v4l2m2m only proves the wrapper was compiled; it does not
+# prove the Pi exposes an H.264 encoder. Encode one real frame before selecting it.
+hardware_available() {
+  command -v timeout >/dev/null 2>&1 || return 1
+  timeout 10s ffmpeg -hide_banner -loglevel error -nostdin \
+    -f lavfi -i "color=size=$size:rate=$frame_rate" -frames:v 1 \
+    -vf format=yuv420p -c:v h264_v4l2m2m -profile:v baseline -bf 0 \
+    -g "$gop" -b:v "$video_bitrate" -maxrate:v "$video_bitrate" \
+    -bufsize:v "$video_bitrate" \
+    -f h264 -y /dev/null >/dev/null 2>&1
+}
+case "$video_encoder" in
+  software) ffmpeg_video_encoder=libx264;;
+  hardware)
+    hardware_available || fail 'Pi V4L2 M2M H.264 encoder is unavailable or cannot encode at this size/rate'
+    ffmpeg_video_encoder=h264_v4l2m2m;;
+  auto)
+    if hardware_available; then
+      ffmpeg_video_encoder=h264_v4l2m2m
+    else
+      ffmpeg_video_encoder=libx264
+      printf 'h264_ts_ffmpeg: hardware H.264 unavailable; using libx264\n' >&2
+    fi;;
+  *) fail "unknown video encoder mode: $video_encoder";;
+esac
+printf 'h264_ts_ffmpeg: using %s\n' "$ffmpeg_video_encoder" >&2
+
 ffmpeg_args=(-hide_banner -loglevel warning -nostdin)
 if [[ "$source_device" == testsrc ]]; then
   ffmpeg_args+=(-f lavfi -i "testsrc2=size=$size:rate=$frame_rate")
@@ -112,10 +144,12 @@ fi
 filter=
 if $deinterlace; then filter=yadif=mode=send_frame,; fi
 filter+="fps=$frame_rate,scale=${size/x/:}:flags=fast_bilinear,format=yuv420p"
-ffmpeg_args+=(-map 0:v:0 -vf "$filter" -r "$frame_rate" -c:v libx264
-  -preset ultrafast -tune zerolatency -profile:v baseline -bf 0
-  -g "$gop" -b:v "$video_bitrate" -maxrate:v "$video_bitrate"
-  -bufsize:v "$video_bitrate")
+ffmpeg_args+=(-map 0:v:0 -vf "$filter" -r "$frame_rate" -c:v "$ffmpeg_video_encoder")
+if [[ "$ffmpeg_video_encoder" == libx264 ]]; then
+  ffmpeg_args+=(-preset ultrafast -tune zerolatency)
+fi
+ffmpeg_args+=(-profile:v baseline -bf 0 -g "$gop" -b:v "$video_bitrate"
+  -maxrate:v "$video_bitrate" -bufsize:v "$video_bitrate")
 if [[ -n "$audio_device" ]]; then
   ffmpeg_args+=(-map 1:a:0 -c:a aac -b:a "$audio_bitrate" -ac "$audio_channels" -ar 48000)
 else

@@ -2,6 +2,13 @@
 
 # Called from the main gui to change the display if touchscreen is not detected
 
+# The fragments below use legacy firmware HDMI settings. On Bookworm/Trixie,
+# KMS display setup lives under /boot/firmware and needs a separate path.
+if [ -e /boot/firmware/config.txt ]; then
+  echo "Legacy display configuration is not supported on Bookworm/Trixie; no boot files changed." >&2
+  exit 1
+fi
+
 # set -x
 
 ############ Set Environment Variables ###############

@@ -2,8 +2,10 @@
 # Portsdown Buster Build For RPi 4
 
 **NTSC/Trixie development:** See [migration status and known limits](doc/ntsc-trixie-migration.md).
-The current installer remains Buster-only; the FFmpeg NTSC encoder path is an
-opt-in development feature, not a complete Trixie release.
+This `Trixie` branch targets a Pi 4 (2 GB) and is **not installable yet**:
+the installer below remains Buster-only. Analog/webcam H.264 can use FFmpeg
+with software, hardware-if-available, or automatic encoder selection, but the
+full GUI and RF paths still need a Pi 4/Trixie test.
 
 **The Portsdown 4** is a DVB-S and DVB-S2 digital television system for the Raspberry Pi 4.  The core of the system was written by Evariste Courjaud F5OEO and is maintained by him.  This BATC Version, known as the Portsdown, has been developed by a team of BATC members for use with a LimeSDR, Pluto or a DATV Express PCB and a MiniTiouner or Knucker tuner.  The intention is that the design should be reproducible by someone who has never used Linux before.  Detailed instructions on loading the software are listed below, and further details of the complete system design and build are on the BATC Wiki at https://wiki.batc.org.uk/The_Portsdown_Transmitter.  There is a Forum for discussion of the project here: https://forum.batc.org.uk/viewforum.php?f=103
 
@@ -40,5 +42,4 @@ chmod +x install_portsdown.sh
 The initial build can take between 45 minutes and one hour, however it does not need any user input, so go and make a cup of coffee and keep an eye on the touchscreen.  When the build is finished the Pi will reboot and start-up with the touchscreen menu.
 
 Once installed. Access the portsdown menu via /home/pi/rpidatv/scripts/menu.sh
-
 

@@ -76,7 +76,7 @@ Rewitten by Dave, G8GKQ
 
 char ImageFolder[63]="/home/pi/rpidatv/image/";
 
-int fd = 0;                           // File Descriptor for touchscreen touch messages
+int fd = -1;                          // File Descriptor for touchscreen touch messages
 int wscreen, hscreen;
 float scaleXvalue, scaleYvalue;       // Coeff ratio from Screen/TouchArea
 int wbuttonsize;
@@ -7452,8 +7452,9 @@ int openTouchScreen(int NoDevice)
   char sDevice[255];
 
   sprintf(sDevice, "/dev/input/event%d", NoDevice);
-  if(fd != 0) close(fd);
-  if ((fd = open(sDevice, O_RDONLY)) > 0)
+  if (fd >= 0) close(fd);
+  fd = open(sDevice, O_RDONLY);
+  if (fd >= 0)
   {
     return 1;
   }
@@ -7511,7 +7512,7 @@ int getTouchScreenDetails(int *screenXmin,int *screenXmax,int *screenYmin,int *s
         if (test_bit(j, bit[i]))
         {
           //printf("    Event code %d (%s)\n", j, names[i] ? (names[i][j] ? names[i][j] : "?") : "?");
-          if(j==330) IsAtouchDevice=1;
+          if(i == EV_KEY && j == BTN_TOUCH) IsAtouchDevice=1;
           if (i == EV_ABS)
           {
             ioctl(fd, EVIOCGABS(j), abs);
@@ -7555,7 +7556,7 @@ int getTouchSampleThread(int *rawX, int *rawY, int *rawPressure)
   }
 
   /* how many bytes were read */
-  size_t rb;
+  ssize_t rb;
 
   /* the events (up to 64 at once) */
   struct input_event ev[64];
@@ -7565,6 +7566,7 @@ int getTouchSampleThread(int *rawX, int *rawY, int *rawPressure)
   {
     // Program flow blocks here until there is a touch event
     rb = read(fd, ev, sizeof(struct input_event) * 64);
+    if (rb <= 0) return 0;
 
     *rawX = -1;
     *rawY = -1;
@@ -7591,14 +7593,14 @@ int getTouchSampleThread(int *rawX, int *rawY, int *rawPressure)
         //        KYEL,events[ev[i].type],KWHT,KYEL,KWHT,KYEL,KWHT);
       }
 
-      else if (ev[i].type == EV_ABS && ev[i].code == 0 && ev[i].value > 0)
+      else if (ev[i].type == EV_ABS && ev[i].code == ABS_X && ev[i].value >= 0)
       {
         //printf("Event type is %s%s%s & Event code is %sX(0)%s & Event value is %s%d%s\n",
         //        KYEL, events[ev[i].type], KWHT, KYEL, KWHT, KYEL, ev[i].value, KWHT);
 	    *rawX = ev[i].value;
       }
 
-      else if (ev[i].type == EV_ABS  && ev[i].code == 1 && ev[i].value > 0)
+      else if (ev[i].type == EV_ABS  && ev[i].code == ABS_Y && ev[i].value >= 0)
       {
         //printf("Event type is %s%s%s & Event code is %sY(1)%s & Event value is %s%d%s\n",
         //        KYEL, events[ev[i].type], KWHT, KYEL, KWHT, KYEL, ev[i].value, KWHT);
@@ -7624,6 +7626,7 @@ int getTouchSampleThread(int *rawX, int *rawY, int *rawPressure)
   {
     // Program flow blocks here until there is a touch event
     rb = read(fd, ev, sizeof(struct input_event) * 64);
+    if (rb <= 0) return 0;
 
     if (awaitingtouchstart == true)
     {    
@@ -29018,9 +29021,11 @@ int main(int argc, char **argv)
 
   // Check the display type in the config file
   GetConfigParam(PATH_PCONFIG, "display", DisplayType);
+  bool modern_boot_config = access("/boot/firmware/config.txt", F_OK) == 0;
 
   // Check for presence of touchscreen
-  for(NoDeviceEvent = 0; NoDeviceEvent < 7; NoDeviceEvent++)
+  // Modern kernels may enumerate the touchscreen after USB capture and SDR devices.
+  for(NoDeviceEvent = 0; NoDeviceEvent < 64; NoDeviceEvent++)
   {
     if (openTouchScreen(NoDeviceEvent) == 1)
     {
@@ -29028,7 +29033,7 @@ int main(int argc, char **argv)
     }
   }
 
-  if(NoDeviceEvent != 7)  // Touchscreen detected
+  if(NoDeviceEvent != 64)  // Touchscreen detected
   {
     touchscreen_present = true;
 
@@ -29042,8 +29047,12 @@ int main(int argc, char **argv)
     {
       SetConfigParam(PATH_PCONFIG, "webcontrol", "enabled");
       SetConfigParam(PATH_PCONFIG, "display", "Element14_7");
-      system ("/home/pi/rpidatv/scripts/set_display_config.sh");
-      system ("sudo reboot now");
+      strcpy(DisplayType, "Element14_7");
+      if (!modern_boot_config &&
+          system("/home/pi/rpidatv/scripts/set_display_config.sh") == 0)
+      {
+        system("sudo reboot now");
+      }
     }
   }
   else // No touchscreen detected, so enable webcontrol, change display type and reboot if required
@@ -29055,11 +29064,19 @@ int main(int argc, char **argv)
      && (strcmp(DisplayType, "hdmi1080") != 0))
     {
       SetConfigParam(PATH_PCONFIG, "webcontrol", "enabled");
-      SetConfigParam(PATH_PCONFIG, "display", "hdmi720");         // Set 720p60 for maximum compatibility
-      system ("/home/pi/rpidatv/scripts/set_display_config.sh");
-      system ("sudo reboot now");
+      if (!modern_boot_config)
+      {
+        SetConfigParam(PATH_PCONFIG, "display", "hdmi720");     // Legacy 720p fallback
+        if (system("/home/pi/rpidatv/scripts/set_display_config.sh") == 0)
+        {
+          system("sudo reboot now");
+        }
+      }
+      else
+      {
+        fprintf(stderr, "Touchscreen not detected; retaining Trixie display configuration\n");
+      }
     }
-    handle_mouse();
   }
 
   // Show Portsdown Logo
@@ -29081,6 +29098,7 @@ int main(int argc, char **argv)
     fprintf(stderr, "GUI cannot start without a supported framebuffer\n");
     return 1;
   }
+  if (!touchscreen_present) handle_mouse();
 
   // Read in the presets from the Config files
   ReadPresets();

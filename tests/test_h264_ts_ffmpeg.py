@@ -19,7 +19,8 @@ class H264TsTest(unittest.TestCase):
         self.addCleanup(self.tempdir.cleanup)
         self.folder = Path(self.tempdir.name)
 
-    def encode(self, output, standard, audio=False, deinterlace=False):
+    def encode(self, output, standard, audio=False, deinterlace=False,
+               video_encoder=None):
         args = [
             str(ENCODER), "--source", "testsrc", "--output", str(output),
             "--standard", standard, "--video-bitrate", "800000",
@@ -30,6 +31,8 @@ class H264TsTest(unittest.TestCase):
             args += ["--audio-device", "testtone", "--audio-bitrate", "48000"]
         if deinterlace:
             args += ["--deinterlace"]
+        if video_encoder:
+            args += ["--video-encoder", video_encoder]
         subprocess.run(args, check=True, capture_output=True, text=True, timeout=30)
 
     def probe(self, output):
@@ -78,6 +81,13 @@ class H264TsTest(unittest.TestCase):
         video = self.probe(output)["streams"][0]
         self.assertEqual((video["width"], video["height"], video["avg_frame_rate"]),
                          (720, 576, "25/1"))
+
+    def test_auto_encoder_produces_valid_ntsc(self):
+        output = self.folder / "ntsc-auto.ts"
+        self.encode(output, "ntsc", video_encoder="auto")
+        self.assert_transport_stream(output)
+        self.assert_decodes(output)
+        self.assertEqual(self.probe(output)["streams"][0]["avg_frame_rate"], "30000/1001")
 
     def test_fifo_output_used_by_rf_modulators(self):
         fifo = self.folder / "videots"

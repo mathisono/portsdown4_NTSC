@@ -14,10 +14,14 @@
 char *fbp = 0;
 char *mfbp = 0;
 char *cfbp = 0;
-int fbfd = 0;
+int fbfd = -1;
 long int screenSize = 0;
+size_t mappedScreenSize = 0;
 int screenXsize=0;
 int screenYsize=0;
+int screenLineLength=0;
+int screenPixelBytes=0;
+struct fb_var_screeninfo screenPixelLayout;
 int currentX=0;
 int currentY=0;
 int textSize=1;
@@ -49,6 +53,73 @@ void draw_cursor2(int new_x, int new_y);
 void refreshMouseBackground(void);
 void draw_cursor_foreground(int x, int y);
 int initScreen(void);
+
+static int validPixelField(struct fb_bitfield field, unsigned int bits)
+{
+  return field.length > 0 && field.length <= 8 && field.offset + field.length <= bits && !field.msb_right;
+}
+
+static int configureFramebuffer(const struct fb_var_screeninfo *vinfo,
+                                const struct fb_fix_screeninfo *finfo)
+{
+  unsigned int pixelBytes = vinfo->bits_per_pixel / 8;
+  if (vinfo->xres != 800 || vinfo->yres != 480 || vinfo->xoffset || vinfo->yoffset)
+  {
+    fprintf(stderr, "Unsupported framebuffer geometry: need 800x480 at offset 0, got %ux%u at %u,%u\n",
+            vinfo->xres, vinfo->yres, vinfo->xoffset, vinfo->yoffset);
+    return 0;
+  }
+  if ((vinfo->bits_per_pixel != 16 && vinfo->bits_per_pixel != 32) ||
+      vinfo->grayscale || vinfo->nonstd ||
+      !validPixelField(vinfo->red, vinfo->bits_per_pixel) ||
+      !validPixelField(vinfo->green, vinfo->bits_per_pixel) ||
+      !validPixelField(vinfo->blue, vinfo->bits_per_pixel) ||
+      (vinfo->transp.length > 8 || vinfo->transp.offset + vinfo->transp.length > vinfo->bits_per_pixel))
+  {
+    fprintf(stderr, "Unsupported framebuffer pixel layout: need 16- or 32-bit RGB\n");
+    return 0;
+  }
+  if (finfo->line_length < vinfo->xres * pixelBytes ||
+      (size_t)finfo->smem_len < (size_t)finfo->line_length * vinfo->yres)
+  {
+    fprintf(stderr, "Framebuffer stride or memory size is too small\n");
+    return 0;
+  }
+
+  screenXsize = vinfo->xres;
+  screenYsize = vinfo->yres;
+  screenPixelBytes = pixelBytes;
+  screenLineLength = finfo->line_length;
+  screenSize = (long int)finfo->line_length * vinfo->yres;
+  mappedScreenSize = finfo->smem_len;
+  screenPixelLayout = *vinfo;
+  return 1;
+}
+
+static uint32_t pixelFieldValue(unsigned int value, struct fb_bitfield field)
+{
+  unsigned int max = (1u << field.length) - 1u;
+  if (value > 255u) value = 255u;
+  return ((value * max + 127u) / 255u) << field.offset;
+}
+
+static uint32_t framebufferPixel(int r, int g, int b)
+{
+  uint32_t pixel = pixelFieldValue((unsigned int)r, screenPixelLayout.red) |
+                   pixelFieldValue((unsigned int)g, screenPixelLayout.green) |
+                   pixelFieldValue((unsigned int)b, screenPixelLayout.blue);
+  if (screenPixelLayout.transp.length)
+  {
+    pixel |= ((1u << screenPixelLayout.transp.length) - 1u) << screenPixelLayout.transp.offset;
+  }
+  return pixel;
+}
+
+static void writeFramebufferPixel(char *buffer, int x, int y, uint32_t pixel)
+{
+  memcpy(buffer + (size_t)y * screenLineLength + (size_t)x * screenPixelBytes,
+         &pixel, screenPixelBytes);
+}
 
 
 uint32_t font_width_string(const font_t *font_ptr, char *string)
@@ -235,14 +306,12 @@ void rectangle(int xpos, int ypos, int xsize, int ysize, int r, int g, int b)
   // xsize and ysize are 1 to 800 (x) or 480 (y)
   int x;     // pixel count
   int y;     // pixel count
-  int p;     // Pixel Memory offset
+  uint32_t pixel = framebufferPixel(r, g, b);
 
   // Check rectangle bounds to save checking each pixel
 
-  if (((xpos < 0) || (xpos > screenXsize))
-    || ((xpos + xsize < 0) || (xpos + xsize > screenXsize))
-    || ((ypos < 0) || (ypos > screenYsize))
-    || ((ypos + ysize < 0) || (ypos + ysize > screenYsize)))
+  if (xpos < 0 || ypos < 0 || xsize < 0 || ysize < 0 ||
+      xpos > screenXsize - xsize || ypos > screenYsize - ysize)
   {
     printf("Rectangle xpos %d xsize %d ypos %d ysize %d tried to write off-screen\n", xpos, xsize, ypos, ysize);
   }
@@ -252,12 +321,7 @@ void rectangle(int xpos, int ypos, int xsize, int ysize, int r, int g, int b)
     {
       for(y = 0; y < ysize; y++)  // Draw a vertical line
       {
-        p = (xpos + x + screenXsize * (479 - (ypos + y))) * 4;
-
-        memset(p + fbp,     b, 1);     // Blue
-        memset(p + fbp + 1, g, 1);     // Green
-        memset(p + fbp + 2, r, 1);     // Red
-        memset(p + fbp + 3, 0x80, 1);  // A
+        writeFramebufferPixel(fbp, xpos + x, screenYsize - 1 - (ypos + y), pixel);
       }
     }
   }
@@ -286,35 +350,24 @@ void setBackColour(int R,int G,int B)
 
 void clearScreen()
 {
-  int p;  // Pixel Memory offset
   int x;  // x pixel count, 0 - 799
   int y;  // y pixel count, 0 - 479
+  uint32_t pixel = framebufferPixel(backColourR, backColourG, backColourB);
 
   for(y=0; y < screenYsize; y++)
   {
     for(x=0; x < screenXsize; x++)
     {
-      p=(x + screenXsize * y) * 4;
-
-      memset(fbp + p,     backColourB, 1);     // Blue
-      memset(fbp + p + 1, backColourG, 1);     // Green
-      memset(fbp + p + 2, backColourR, 1);     // Red
-      memset(fbp + p + 3, 0x80,        1);     // A
+      writeFramebufferPixel(fbp, x, y, pixel);
     }
   }
 }
 
 void setPixel(int x, int y, int R, int G, int B)
 {
-  int p;  // Pixel Memory offset
-  if ((x < 800) && (y < 480))
+  if (x >= 0 && y >= 0 && x < screenXsize && y < screenYsize)
   {
-    p=(x + screenXsize * y) * 4;
-
-    memset(fbp + p, B, 1);         // Blue
-    memset(fbp + p + 1, G, 1);     // Green
-    memset(fbp + p + 2, R, 1);     // Red
-    memset(fbp + p + 3, 0x80, 1);  // A
+    writeFramebufferPixel(fbp, x, y, framebufferPixel(R, G, B));
   }
   else
   {
@@ -340,21 +393,15 @@ void closeScreen(void)
 {
   free(mfbp);
   free(cfbp);
-  munmap(fbp, screenSize);
-  close(fbfd);
+  if (fbp && fbp != MAP_FAILED) munmap(fbp, mappedScreenSize);
+  if (fbfd >= 0) close(fbfd);
 }
 
 void setCursorPixel(int x, int y, int level)
 {
-  int p;  // Pixel Memory offset
-  if ((x < 800) && (y < 480))
+  if (x >= 0 && y >= 0 && x < screenXsize && y < screenYsize)
   {
-    p=(x + screenXsize * y) * 4;
-
-    memset(cfbp + p, level, 1);         // Blue
-    memset(cfbp + p + 1, level, 1);     // Green
-    memset(cfbp + p + 2, level, 1);     // Red
-    memset(cfbp + p + 3, 0x80, 1);  // A
+    writeFramebufferPixel(cfbp, x, y, framebufferPixel(level, level, level));
   }
   else
   {
@@ -503,8 +550,8 @@ void draw_cursor2(int new_x, int new_y)
   }
 
   // Calulate memory positions:
-  x_start = 4 * box_left;
-  x_width = 4 * (box_right - box_left);
+  x_start = screenPixelBytes * box_left;
+  x_width = screenPixelBytes * (box_right - box_left + 1);
   y_start = 479 - box_top;
   y_height = box_top - box_base;
 
@@ -513,7 +560,8 @@ void draw_cursor2(int new_x, int new_y)
   for(int cursor_redraw_line = y_start; cursor_redraw_line <= (y_start + y_height); cursor_redraw_line++)
   {
     // copy the mouse clean background buffer into the cursor buffer 
-    memcpy(cfbp + x_start + (cursor_redraw_line * screenXsize * 4), mfbp + x_start + (cursor_redraw_line * screenXsize * 4), x_width);
+    memcpy(cfbp + x_start + (cursor_redraw_line * screenLineLength),
+           mfbp + x_start + (cursor_redraw_line * screenLineLength), x_width);
   }
 
   //memcpy(cfbp, mfbp, screenSize);
@@ -639,7 +687,8 @@ void draw_cursor2(int new_x, int new_y)
   for(int cursor_redraw_line = y_start; cursor_redraw_line <= (y_start + y_height); cursor_redraw_line++)
   {
     // copy the cursor buffer into the display buffer 
-    memcpy(fbp + x_start + (cursor_redraw_line * screenXsize * 4), cfbp + x_start + (cursor_redraw_line * screenXsize * 4), x_width);
+    memcpy(fbp + x_start + (cursor_redraw_line * screenLineLength),
+           cfbp + x_start + (cursor_redraw_line * screenLineLength), x_width);
   }
 }
 
@@ -790,11 +839,12 @@ void draw_cursor_foreground(int x, int y)
 
 int initScreen(void)
 {
-
   struct fb_var_screeninfo vinfo;
   struct fb_fix_screeninfo finfo;
+  const char *fbDevice = getenv("PORTSDOWN_FB_DEVICE");
+  if (fbDevice == NULL || fbDevice[0] == '\0') fbDevice = "/dev/fb0";
  
-  fbfd = open("/dev/fb0", O_RDWR);
+  fbfd = open(fbDevice, O_RDWR);
   if (fbfd < 0)
   {
     perror("Error opening framebuffer device");
@@ -814,24 +864,12 @@ int initScreen(void)
     close(fbfd);
     return(0);
   }
-  if (vinfo.bits_per_pixel != 32 || finfo.line_length != vinfo.xres * 4)
+  if (!configureFramebuffer(&vinfo, &finfo))
   {
-    fprintf(stderr, "Unsupported framebuffer: expected 32-bit, tightly packed pixels\n");
     close(fbfd);
     return(0);
   }
-  
-  screenXsize=vinfo.xres;
-  screenYsize=vinfo.yres;
-  
-  screenSize = finfo.smem_len;
-  if (screenSize <= 0)
-  {
-    fprintf(stderr, "Framebuffer reports an invalid size\n");
-    close(fbfd);
-    return(0);
-  }
-  fbp = (char*)mmap(0, screenSize, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
+  fbp = (char*)mmap(0, mappedScreenSize, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
   if (fbp == MAP_FAILED)
   {
     perror("Error mapping framebuffer");
@@ -849,7 +887,7 @@ int initScreen(void)
     fprintf(stderr, "Unable to allocate framebuffer copies\n");
     free(mfbp);
     free(cfbp);
-    munmap(fbp, screenSize);
+    munmap(fbp, mappedScreenSize);
     close(fbfd);
     return 0;
   }

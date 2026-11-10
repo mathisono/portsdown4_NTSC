@@ -71,6 +71,8 @@ CAPTIONON=$(get_config_var caption $PCONFIGFILE)
 OPSTD=$(get_config_var outputstandard $PCONFIGFILE)
 H264_BACKEND=${PORTSDOWN_H264_BACKEND:-$(get_config_var h264backend "$PCONFIGFILE")}
 H264_BACKEND=${H264_BACKEND:-legacy}
+H264_ENCODER=${PORTSDOWN_H264_ENCODER:-$(get_config_var h264encoder "$PCONFIGFILE")}
+H264_ENCODER=${H264_ENCODER:-software}
 case "$H264_BACKEND" in
   legacy|ffmpeg) ;;
   *) echo "Unknown H.264 backend: $H264_BACKEND" >&2; exit 2 ;;
@@ -78,6 +80,12 @@ esac
 if [ "$H264_BACKEND" == "ffmpeg" ] && ! command -v ffmpeg >/dev/null 2>&1; then
   echo "The FFmpeg H.264 backend requires ffmpeg in PATH" >&2
   exit 2
+fi
+if [ "$H264_BACKEND" == "ffmpeg" ]; then
+  case "$H264_ENCODER" in
+    software|hardware|auto) ;;
+    *) echo "Unknown FFmpeg H.264 encoder mode: $H264_ENCODER" >&2; exit 2 ;;
+  esac
 fi
 DISPLAY=$(get_config_var display $PCONFIGFILE)
 
@@ -1290,7 +1298,7 @@ fi
         --standard "$VIDEO_STANDARD" --size "${VIDEO_WIDTH}x${VIDEO_HEIGHT}"
         --video-bitrate "$BITRATE_VIDEO" --muxrate "$BITRATE_TS"
         --pmt-pid "$PIDPMT" --service-id "$SERVICEID" --service-name "$CALL"
-        --gop "$IDRPERIOD")
+        --gop "$IDRPERIOD" --video-encoder "$H264_ENCODER")
       if [ "$MODE_INPUT" == "ANALOGCAM" ]; then
         H264_ARGS+=(--deinterlace)
       fi

@@ -106,7 +106,7 @@ hardware_available() {
   command -v timeout >/dev/null 2>&1 || return 1
   timeout 10s ffmpeg -hide_banner -loglevel error -nostdin \
     -f lavfi -i "color=size=$size:rate=$frame_rate" -frames:v 1 \
-    -vf format=yuv420p -c:v h264_v4l2m2m -profile:v baseline -bf 0 \
+    -vf format=yuv420p -c:v h264_v4l2m2m -profile:v 66 -bf 0 \
     -g "$gop" -b:v "$video_bitrate" -maxrate:v "$video_bitrate" \
     -bufsize:v "$video_bitrate" \
     -f h264 -y /dev/null >/dev/null 2>&1
@@ -146,9 +146,12 @@ if $deinterlace; then filter=yadif=mode=send_frame,; fi
 filter+="fps=$frame_rate,scale=${size/x/:}:flags=fast_bilinear,format=yuv420p"
 ffmpeg_args+=(-map 0:v:0 -vf "$filter" -r "$frame_rate" -c:v "$ffmpeg_video_encoder")
 if [[ "$ffmpeg_video_encoder" == libx264 ]]; then
-  ffmpeg_args+=(-preset ultrafast -tune zerolatency)
+  ffmpeg_args+=(-preset ultrafast -tune zerolatency -profile:v baseline)
+else
+  # FFmpeg's V4L2 wrapper needs the numeric H.264 Baseline profile ID.
+  ffmpeg_args+=(-profile:v 66)
 fi
-ffmpeg_args+=(-profile:v baseline -bf 0 -g "$gop" -b:v "$video_bitrate"
+ffmpeg_args+=(-bf 0 -g "$gop" -b:v "$video_bitrate"
   -maxrate:v "$video_bitrate" -bufsize:v "$video_bitrate")
 if [[ -n "$audio_device" ]]; then
   ffmpeg_args+=(-map 1:a:0 -c:a aac -b:a "$audio_bitrate" -ac "$audio_channels" -ar 48000)

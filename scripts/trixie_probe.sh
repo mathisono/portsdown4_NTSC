@@ -78,7 +78,7 @@ if command -v ffmpeg >/dev/null 2>&1; then
   if command -v timeout >/dev/null 2>&1 &&
      timeout 10s ffmpeg -hide_banner -loglevel error -nostdin \
        -f lavfi -i 'color=size=720x480:rate=30000/1001' -frames:v 1 \
-       -vf format=yuv420p -c:v h264_v4l2m2m -profile:v baseline -bf 0 \
+       -vf format=yuv420p -c:v h264_v4l2m2m -profile:v 66 -bf 0 \
        -b:v 800000 -maxrate:v 800000 -bufsize:v 800000 \
        -f h264 -y /dev/null >/dev/null 2>&1; then
     printf 'Pi V4L2 M2M H.264 encoder: usable now\n'

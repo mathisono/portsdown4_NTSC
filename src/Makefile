@@ -1,7 +1,8 @@
 all:	rpidatv 
 
 #CFLAGS	= -Wall -g -O2 -D DIGITHIN
-CFLAGS	= -Wall -g -O2 -Wno-unused-variable -Wno-unused-function 
+# Legacy globals in headers rely on GCC's common-symbol behavior (GCC 10+ defaults to -fno-common).
+CFLAGS	= -Wall -g -O2 -Wno-unused-variable -Wno-unused-function -fcommon
 LDFLAGS	= -lm -lrt -lpthread 
 
 rpidatv : rpigpio.c rpidatv.c dvbsenco8.s fec100.c mailbox.c rpidma.c

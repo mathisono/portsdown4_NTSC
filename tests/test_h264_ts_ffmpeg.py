@@ -56,6 +56,24 @@ class H264TsTest(unittest.TestCase):
             check=True, capture_output=True, text=True, timeout=30,
         )
 
+    def assert_ntsc_cadence(self, output):
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=time_base,r_frame_rate",
+             "-show_entries", "frame=best_effort_timestamp",
+             "-of", "json", str(output)],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+        probe = json.loads(result.stdout)
+        self.assertEqual(probe["streams"][0]["time_base"], "1/90000")
+        self.assertEqual(probe["streams"][0]["r_frame_rate"], "30000/1001")
+        timestamps = [int(frame["best_effort_timestamp"])
+                      for frame in probe["frames"]]
+        self.assertGreater(len(timestamps), 30)
+        deltas = {next_pts - pts
+                  for pts, next_pts in zip(timestamps, timestamps[1:])}
+        self.assertEqual(deltas, {3003})
+
     def test_ntsc_video_and_audio(self):
         output = self.folder / "ntsc.ts"
         self.encode(output, "ntsc", audio=True)
@@ -68,7 +86,7 @@ class H264TsTest(unittest.TestCase):
         video, audio = program["streams"]
         self.assertEqual((video["codec_name"], video["width"], video["height"]),
                          ("h264", 720, 480))
-        self.assertEqual(video["avg_frame_rate"], "30000/1001")
+        self.assert_ntsc_cadence(output)
         self.assertEqual(video["id"], "0x1000")
         self.assertEqual(audio["codec_name"], "aac")
         self.assertEqual(audio["id"], "0x1001")
@@ -87,7 +105,7 @@ class H264TsTest(unittest.TestCase):
         self.encode(output, "ntsc", video_encoder="auto")
         self.assert_transport_stream(output)
         self.assert_decodes(output)
-        self.assertEqual(self.probe(output)["streams"][0]["avg_frame_rate"], "30000/1001")
+        self.assert_ntsc_cadence(output)
 
     def test_fifo_output_used_by_rf_modulators(self):
         fifo = self.folder / "videots"

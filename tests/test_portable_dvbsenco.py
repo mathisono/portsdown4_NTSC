@@ -14,6 +14,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'src'
 
 
+class PiInfo(ctypes.Structure):
+    _fields_ = [('memory', ctypes.c_int), ('processor', ctypes.c_int),
+                ('i2c_device', ctypes.c_int), ('model', ctypes.c_int),
+                ('manufacturer', ctypes.c_int), ('pcb_revision', ctypes.c_int),
+                ('warranty_bit', ctypes.c_int), ('revision_number', ctypes.c_int),
+                ('peripheral_base', ctypes.c_uint32)]
+
+
 def table(name, length):
     asm = (SRC / 'dvbsenco8.s').read_text()
     section = asm.split(f'{name}:', 1)[1].split('\n\n', 1)[0]
@@ -81,13 +89,6 @@ class PortableEncoderTest(unittest.TestCase):
                              AssemblyReference().encode(bytes([0x47] + [0] * 187)))
 
     def test_pi4_revision_uses_bcm2711_peripheral_base(self):
-        class PiInfo(ctypes.Structure):
-            _fields_ = [('memory', ctypes.c_int), ('processor', ctypes.c_int),
-                        ('i2c_device', ctypes.c_int), ('model', ctypes.c_int),
-                        ('manufacturer', ctypes.c_int), ('pcb_revision', ctypes.c_int),
-                        ('warranty_bit', ctypes.c_int), ('revision_number', ctypes.c_int),
-                        ('peripheral_base', ctypes.c_uint32)]
-
         with tempfile.TemporaryDirectory() as temp:
             library = Path(temp) / 'revision.so'
             subprocess.run(['cc', '-shared', '-fPIC', str(SRC / 'raspberry_pi_revision.c'),
@@ -98,6 +99,22 @@ class PortableEncoderTest(unittest.TestCase):
             info = PiInfo()
             self.assertEqual(revision.getRaspberryPiInformationForRevision(0xc03111,
                                                                             ctypes.byref(info)), 2)
+            self.assertEqual(info.processor, 2711)
+            self.assertEqual(info.peripheral_base, 0xfe000000)
+
+    def test_live_pi4_revision_when_running_on_pi4(self):
+        model_path = Path('/proc/device-tree/model')
+        if not model_path.exists() or b'Raspberry Pi 4' not in model_path.read_bytes():
+            self.skipTest('requires Raspberry Pi 4')
+
+        with tempfile.TemporaryDirectory() as temp:
+            library = Path(temp) / 'revision.so'
+            subprocess.run(['cc', '-shared', '-fPIC', str(SRC / 'raspberry_pi_revision.c'),
+                            '-o', str(library)], check=True)
+            revision = ctypes.CDLL(str(library))
+            revision.getRaspberryPiInformation.argtypes = [ctypes.POINTER(PiInfo)]
+            info = PiInfo()
+            self.assertEqual(revision.getRaspberryPiInformation(ctypes.byref(info)), 2)
             self.assertEqual(info.processor, 2711)
             self.assertEqual(info.peripheral_base, 0xfe000000)
 

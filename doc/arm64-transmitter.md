@@ -34,13 +34,22 @@ src/rpidatv -h
 
 The encoder test compares 96 packets across interleaver wraparound and reset
 against an independent Python translation of the ARM32 table/offset logic.
-It also checks Pi 4 revision decoding. A 64-bit x86_64 build proves the C
-path compiles and links; it is **not** a native AArch64 binary or an RF test.
+It also checks Pi 4 revision decoding.
+
+On 10 November 2026, the committed core was copied into an isolated directory
+on TANK (Pi 4 Model B Rev 1.5, Debian Trixie `aarch64`). Native `make -C src`
+produced an AArch64 `rpidatv` binary. Its help path and all three tests passed,
+including live BCM2711 revision detection. The source archive SHA-256 was
+checked before extraction. `make -C src/dvb_t2_stack -j2 PI4=1 NO_PLUTO=1`
+also produced native AArch64 `t2mod` and Lime-linked `dvb_t2_stack` binaries.
+Pluto was disabled because `libiio` development files were not installed.
+Neither transmitter binary was run, no RF output was activated, and the
+existing `rover-web.service` remained active.
 
 ## Remaining before arm64 support can be claimed
 
-1. Build `rpidatv` with a native AArch64 compiler on a spare Pi 4/Trixie
-   installation, then compare captured encoded packets with the ARM32 path.
+1. Compare captured encoded packets with the ARM32 path on real hardware;
+   the Python assembly translation is not a direct ARM32 execution oracle.
 2. Audit and validate DMA channel selection, BCM2711 register offsets,
    mailbox allocation, DMA transfer pacing, GPIO/PWM/PCM setup and cleanup on
    a Pi 4 before connecting RF output. The legacy `DMA_CHANNEL * 0x40`

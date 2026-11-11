@@ -29,6 +29,19 @@ char InitGpio()
 			 dram_phys_base   =  0xc0000000;
 			 mem_flag         =  0x04;
 		}
+
+		if(info.peripheralBase==RPI_BROADCOM_2711_PERIPHERAL_BASE)
+		{
+			BCM2708_PERI_BASE = info.peripheralBase;
+			dram_phys_base = 0xc0000000;
+			mem_flag = 0x04;
+		}
+	}
+
+	if(BCM2708_PERI_BASE == 0)
+	{
+		fprintf(stderr, "Unsupported Raspberry Pi peripheral base; refusing GPIO/DMA mapping\n");
+		return 0;
 	}
 
 	DisplayInfo();
@@ -93,5 +106,4 @@ void DisplayInfo()
         printf("peripheral base: 0x%x\n", info.peripheralBase);
 	}
 }
-
 

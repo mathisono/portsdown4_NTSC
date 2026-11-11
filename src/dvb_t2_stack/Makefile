@@ -7,7 +7,11 @@ CXXFLAGS ?= -O2 -std=c++17 -pthread
 CPPFLAGS += -Ishim -Isrc -I/usr/local/include
 LDFLAGS  += -L/usr/local/lib
 ifdef PI4
-CXXFLAGS += -mcpu=cortex-a72 -mfpu=neon-fp-armv8 -mfloat-abi=hard
+TARGET_ARCH ?= $(shell $(CXX) -dumpmachine)
+CXXFLAGS += -mcpu=cortex-a72
+ifeq ($(findstring aarch64,$(TARGET_ARCH)),)
+CXXFLAGS += -mfpu=neon-fp-armv8 -mfloat-abi=hard
+endif
 endif
 RADIO_OBJS =
 RADIO_LIBS =

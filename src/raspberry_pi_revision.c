@@ -211,7 +211,8 @@ static RASPBERRY_PI_PROCESSOR_T bitFieldToProcessor[] =
 {
     RPI_BROADCOM_2835, // 0
     RPI_BROADCOM_2836, // 1
-    RPI_BROADCOM_2837  // 2
+    RPI_BROADCOM_2837, // 2
+    RPI_BROADCOM_2711  // 3
 };
 
 //-------------------------------------------------------------------------
@@ -259,7 +260,11 @@ static RASPBERRY_PI_MODEL_T bitFieldToModel[] =
     RPI_COMPUTE_MODULE_3, // A
     RPI_MODEL_UNKNOWN,    // B
     RPI_MODEL_ZERO_W,     // C
-    RPI_MODEL_B_PI_3_PLUS // D
+    RPI_MODEL_B_PI_3_PLUS, // D
+    RPI_MODEL_UNKNOWN,    // E
+    RPI_MODEL_UNKNOWN,    // F
+    RPI_MODEL_UNKNOWN,    // 10
+    RPI_MODEL_B_PI_4      // 11
 };
 
 static RASPBERRY_PI_MODEL_T revisionToModel[] =
@@ -403,28 +408,37 @@ getRaspberryPiRevision()
 
     FILE *fp = fopen("/proc/cpuinfo", "r");
 
-    if (fp == NULL)
+    if (fp != NULL)
     {
-        perror("/proc/cpuinfo");
-        return raspberryPiRevision;
+        char entry[80];
+        while (fgets(entry, sizeof(entry), fp) != NULL)
+        {
+            char* saveptr = NULL;
+
+            char *key = trimWhiteSpace(strtok_r(entry, ":", &saveptr));
+            char *value = trimWhiteSpace(strtok_r(NULL, ":", &saveptr));
+
+            if (key != NULL && value != NULL && strcasecmp("Revision", key) == 0)
+                raspberryPiRevision = strtol(value, NULL, 16);
+        }
+        fclose(fp);
     }
 
-    char entry[80];
-
-    while (fgets(entry, sizeof(entry), fp) != NULL)
+    /* arm64 kernels may omit Revision from /proc/cpuinfo. The device-tree
+     * property is a four-byte big-endian revision code on Raspberry Pi. */
+    if (raspberryPiRevision == 0)
     {
-        char* saveptr = NULL;
-
-        char *key = trimWhiteSpace(strtok_r(entry, ":", &saveptr));
-        char *value = trimWhiteSpace(strtok_r(NULL, ":", &saveptr));
-
-        if (strcasecmp("Revision", key) == 0)
+        unsigned char bytes[4];
+        fp = fopen("/proc/device-tree/system/linux,revision", "rb");
+        if (fp != NULL)
         {
-            raspberryPiRevision = strtol(value, NULL, 16);
+            if (fread(bytes, 1, sizeof(bytes), fp) == sizeof(bytes))
+                raspberryPiRevision = (int)((uint32_t)bytes[0] << 24 |
+                                            (uint32_t)bytes[1] << 16 |
+                                            (uint32_t)bytes[2] << 8 | bytes[3]);
+            fclose(fp);
         }
     }
-
-    fclose(fp);
 
     return raspberryPiRevision;
 }
@@ -590,6 +604,11 @@ getRaspberryPiInformationForRevision(
             info->peripheralBase = RPI_BROADCOM_2837_PERIPHERAL_BASE;
             break;
 
+        case RPI_BROADCOM_2711:
+
+            info->peripheralBase = RPI_BROADCOM_2711_PERIPHERAL_BASE;
+            break;
+
         default:
 
             info->peripheralBase = RPI_PERIPHERAL_BASE_UNKNOWN;
@@ -656,6 +675,11 @@ raspberryPiProcessorToString(
     case RPI_BROADCOM_2837:
 
         string = "Broadcom BCM2837";
+        break;
+
+    case RPI_BROADCOM_2711:
+
+        string = "Broadcom BCM2711";
         break;
 
     default:
@@ -764,6 +788,11 @@ raspberryPiModelToString(
         string = "Model B Pi 3+";
         break;
 
+    case RPI_MODEL_B_PI_4:
+
+        string = "Model B Pi 4";
+        break;
+
     default:
 
         break;
@@ -819,4 +848,3 @@ raspberryPiManufacturerToString(
 
     return string;
 }
-

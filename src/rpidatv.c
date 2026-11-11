@@ -34,6 +34,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <math.h>
 #include <time.h>
 #include <signal.h>
@@ -840,7 +841,7 @@ ret=fstat(fdts,&bufstat);
 			if(Loop==1)
 			{
 				close(fdts);
-				fdts = open(FileName, 'r');
+				fdts = open(FileName, O_RDONLY);
 				TotalByteRead=0;
 				printf("Loop %s\n",FileName);
 			}
@@ -919,8 +920,12 @@ int CalibrateSystem()
 		return 0;
  	}
 	clockppm = (double)ntx.freq/(double)(1 << 16);
-	if(abs(clockppm)<200)
-		ppm=clockppm;
+	if (fabs(clockppm) >= 200)
+	{
+		fprintf(stderr, "Clock PPM outside supported calibration range\n");
+		return 0;
+	}
+	ppm = clockppm;
 	printf("Clock PPM = %d\n",ppm);
 	return ppm;
 }
@@ -996,7 +1001,7 @@ main(int argc, char **argv)
 		{
 		case 'i': // InputFile
 			FileName=optarg;
-			fdts = open(FileName, 'r');
+			fdts = open(FileName, O_RDONLY);
 			break;
 		case 's': // SymbolRate
 			SymbolRate = atoi(optarg);
@@ -1012,8 +1017,7 @@ main(int argc, char **argv)
 			break;
 		case 'h': // help
 			print_usage();
-			terminate(0);
-			break;
+			return 0;
 		case 'l': // loop mode
 			Loop = 1;
 			break;
@@ -1090,9 +1094,11 @@ main(int argc, char **argv)
 	// The fractional part is stored in the lower 12 bits
 	//freq_ctl = ((float)(PLLFREQ / CARRIERFREQ)) * ( 1 << 12 );
 		
-	InitGpio();
-
-	InitDma(terminate);
+	if (!InitGpio() || !InitDma(terminate))
+	{
+		fprintf(stderr, "GPIO/DMA initialization failed\n");
+		return 1;
+	}
 
 	if(ModeIQ==0)
 		InitUgly();
@@ -1131,7 +1137,7 @@ main(int argc, char **argv)
 	//dma_reg[DMA_CS+DMA_CHANNEL*0x40] = 0x10880001;	// go, mid priority, wait for outstanding writes :7 Seems Max Priority
 
         udelay(200);
-	uint32_t last_cb = (uint32_t)ctl->cb;
+	uintptr_t last_cb = (uintptr_t)ctl->cb;
 	uint32_t NbSymbol = 0;
 
 	//terminate(0); // Before going to DMA
@@ -1144,7 +1150,7 @@ main(int argc, char **argv)
 	//printf("TimeToSleep = %d\n",TimeToSleep);
 //TRY REMOVING DELAY
 //printf("Removing Delay");
-static volatile uint32_t cur_cb;
+static volatile uintptr_t cur_cb;
 int last_sample;
 int this_sample; 
 int free_slots;
@@ -1207,19 +1213,19 @@ for(k=0;k<BURST_MEM_SIZE/188;k++)
 
 if(ModeIQ==0) //UGLY
 {
-	cur_cb = (uint32_t)virtbase;
+	cur_cb = (uintptr_t)virtbase;
 	
-	last_cb=(uint32_t)virtbase + 2*204*8* /*NUM_SAMPLES/8* */ sizeof(dma_cb_t) *2  ;//AGAIN *2 TO AVOID ISSUE ? 
+	last_cb=(uintptr_t)virtbase + 2*204*8* /*NUM_SAMPLES/8* */ sizeof(dma_cb_t) *2  ;//AGAIN *2 TO AVOID ISSUE ?
 }
 if(ModeIQ==1)
 {
-	cur_cb = (uint32_t)virtbase;
-	last_cb=(uint32_t)virtbase + 204*8*2*sizeof(dma_cb_t) ;//*2 Should be "paire" else not aligned to I/Q
+	cur_cb = (uintptr_t)virtbase;
+	last_cb=(uintptr_t)virtbase + 204*8*2*sizeof(dma_cb_t) ;//*2 Should be "paire" else not aligned to I/Q
 }
 if(ModeIQ==2)
 {
-	cur_cb = (uint32_t)virtbase;
-	last_cb=(uint32_t)virtbase + 4*188*8*sizeof(dma_cb_t)*2 ;//*2 Should be "paire" else not aligned to I/Q
+	cur_cb = (uintptr_t)virtbase;
+	last_cb=(uintptr_t)virtbase + 4*188*8*sizeof(dma_cb_t)*2 ;//*2 Should be "paire" else not aligned to I/Q
 }
 
 dma_reg[DMA_CONBLK_AD+DMA_CHANNEL*0x40]=mem_virt_to_phys(virtbase);
@@ -1236,7 +1242,7 @@ printf("%ld:%ld : Fulling buffer \n",gettime_now.tv_sec,gettime_now.tv_nsec);
 
 
 static uint32_t MaxToGetBuffer=0; // Time of the circular buffer : depend on SIZE and SymbolRate
-uint64_t TSRate=SymbolRate*FEC*188*1000.0/(4*204*(FEC+1L));
+	uint64_t TSRate=SymbolRate*FEC*188*1000.0/(4*204*(FEC+1L));
 if(ModeIQ==0)
 	MaxToGetBuffer=((NUM_SAMPLES-(204*2*4))*1000)/(SymbolRate*2); // ONLY UGLY
 if(ModeIQ==1)
@@ -1253,7 +1259,7 @@ if(ModeIQ==2)
 	//uint64_t TSRate=SymbolRate*FEC*188*1000.0/(4*204*(FEC+1L));
 	pthread_attr_t attr;
 	pthread_mutex_init (&my_circular_buffer.lock, NULL);
-	printf("TSrate in byte =%llu\n",TSRate); 		
+	printf("TSrate in byte =%" PRIu64 "\n", TSRate);
 	pthread_attr_init (&attr);
 	//pthread_attr_setdetachstate (&attr, PTHREAD_CREATE_DETACHED);
 	//pthread_create (&th1,&attr, &FillBigBuffer,NULL);
@@ -1291,8 +1297,8 @@ for (;;)
 		{ 	
 			static int StatusCompteur=0;
 			cur_cb = mem_phys_to_virt(dma_reg[DMA_CONBLK_AD+DMA_CHANNEL*0x40]);
-			this_sample = (cur_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t) * 2);
-			last_sample = (last_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t) * 2);
+			this_sample = (cur_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t) * 2);
+			last_sample = (last_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t) * 2);
 			free_slots = this_sample - last_sample;
 			if (free_slots < 0) // WARNING : ORIGINAL CODE WAS < strictly
 			{
@@ -1345,8 +1351,8 @@ for (;;)
 			
 			static int free_slots_now;
 			cur_cb = mem_phys_to_virt(dma_reg[DMA_CONBLK_AD+DMA_CHANNEL*0x40]);
-			this_sample = (cur_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t) * 2);
-			last_sample = (last_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t) * 2);
+			this_sample = (cur_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t) * 2);
+			last_sample = (last_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t) * 2);
 			free_slots_now = this_sample - last_sample;
 			if (free_slots_now < 0) // WARNING : ORIGINAL CODE WAS < strictly
 				free_slots_now += NUM_SAMPLES;
@@ -1417,7 +1423,7 @@ for (;;)
 							if(Loop==1)
 								{
 									close(fdts);
-									 fdts = open(FileName, 'r');
+									 fdts = open(FileName, O_RDONLY);
 								}
 								else
 								{	
@@ -1502,7 +1508,7 @@ for (;;)
 			/*
 			static int free_slot_process;
 			cur_cb = mem_phys_to_virt(dma_reg[DMA_CONBLK_AD+DMA_CHANNEL*0x40]);
-			this_sample = (cur_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t) * 2);
+			this_sample = (cur_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t) * 2);
 			
 			free_slot_process = this_sample - last_sample;
 			if (free_slot_process < 0) // WARNING : ORIGINAL CODE WAS < strictly
@@ -1519,13 +1525,13 @@ for (;;)
 			if((Init==0)&&(FEC>0)&&(time_difference>MaxToGetBuffer*1000))
 				{
 					dma_reg[DMA_CONBLK_AD+DMA_CHANNEL*0x40]=mem_virt_to_phys(virtbase);
-					last_cb=(uint32_t)virtbase + 2*204*8* /*NUM_SAMPLES/8* */ sizeof(dma_cb_t) *2  ;
+					last_cb=(uintptr_t)virtbase + 2*204*8* /*NUM_SAMPLES/8* */ sizeof(dma_cb_t) *2  ;
 					 printf("File to slow !! wait for %ldus\n",(long int)time_difference/1000);
 					 
 					
 				}
 			else
-				last_cb = (uint32_t)virtbase + last_sample * sizeof(dma_cb_t) * 2;
+				last_cb = (uintptr_t)virtbase + last_sample * sizeof(dma_cb_t) * 2;
 			
 		}
 		//********************************* MODE IQ **************************************
@@ -1533,8 +1539,8 @@ for (;;)
 		{
 			static int StatusCompteur=0;
 			cur_cb = mem_phys_to_virt(dma_reg[DMA_CONBLK_AD+DMA_CHANNEL*0x40]);
-			this_sample = (cur_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t) );
-			last_sample = (last_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t) );
+			this_sample = (cur_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t) );
+			last_sample = (last_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t) );
 		    	free_slots = this_sample - last_sample;
 			if (free_slots < 0) // WARNING : ORIGINAL CODE WAS < strictly
 				free_slots += NUM_SAMPLES;
@@ -1596,8 +1602,8 @@ for (;;)
 				}
 				static int free_slots_now; 
 				cur_cb = mem_phys_to_virt(dma_reg[DMA_CONBLK_AD+DMA_CHANNEL*0x40]);
-				this_sample = (cur_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t) );
-				last_sample = (last_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t));
+				this_sample = (cur_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t) );
+				last_sample = (last_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t));
 				free_slots_now = this_sample - last_sample;
 				if (free_slots_now < 0) // WARNING : ORIGINAL CODE WAS < strictly
 					free_slots_now += NUM_SAMPLES;
@@ -1699,7 +1705,7 @@ for (;;)
 								if(Loop==1)
 								{
 									close(fdts);
-									 fdts = open(FileName, 'r');
+									 fdts = open(FileName, O_RDONLY);
 									ByteRead=read(fdts,buff,188);
 								}
 								else
@@ -1825,7 +1831,7 @@ for (;;)
 				
 					
 			}
-			last_cb = (uint32_t)virtbase + last_sample * sizeof(dma_cb_t) ;
+			last_cb = (uintptr_t)virtbase + last_sample * sizeof(dma_cb_t) ;
 
 		}
 
@@ -1835,8 +1841,8 @@ for (;;)
 			//uint32_t static TSRate;
 			//TSRate=SymbolRate*FEC*188/(4*204*(FEC+1L));
 			cur_cb = mem_phys_to_virt(dma_reg[DMA_CONBLK_AD+DMA_CHANNEL*0x40]);
-			this_sample = (cur_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t)*2 );
-			last_sample = (last_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t)*2 );
+			this_sample = (cur_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t)*2 );
+			last_sample = (last_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t)*2 );
 			
 		    	free_slots = this_sample - last_sample;
 			if (free_slots < 0) // WARNING : ORIGINAL CODE WAS < strictly
@@ -1863,8 +1869,8 @@ for (;;)
 				
 				static int free_slots_now; 
 				cur_cb = mem_phys_to_virt(dma_reg[DMA_CONBLK_AD+DMA_CHANNEL*0x40]);
-				this_sample = (cur_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t)*2);
-				last_sample = (last_cb - (uint32_t)virtbase) / (sizeof(dma_cb_t)*2);
+				this_sample = (cur_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t)*2);
+				last_sample = (last_cb - (uintptr_t)virtbase) / (sizeof(dma_cb_t)*2);
 				//printf("%lx %lx\n",this_sample,last_sample);
 				free_slots_now = this_sample - last_sample;
 				if (free_slots_now < 0) // WARNING : ORIGINAL CODE WAS < strictly
@@ -1916,7 +1922,7 @@ for (;;)
 								if(Loop==1)
 								{
 									close(fdts);
-									 fdts = open(argv[1], 'r');
+									 fdts = open(argv[1], O_RDONLY);
 								}
 								else
 								{	
@@ -2023,7 +2029,7 @@ for (;;)
 					
 			}
 			
-			last_cb = (uint32_t)virtbase + last_sample * sizeof(dma_cb_t)*2 ;
+			last_cb = (uintptr_t)virtbase + last_sample * sizeof(dma_cb_t)*2 ;
 
 		}		
 	}
@@ -2031,4 +2037,3 @@ for (;;)
 	terminate(0);
 	return(0);
 }
-

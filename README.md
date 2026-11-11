@@ -2,6 +2,8 @@
 # Portsdown Buster Build For RPi 4
 
 **NTSC/Trixie development:** See [migration status and known limits](doc/ntsc-trixie-migration.md).
+The [native 64-bit transmitter port](doc/arm64-transmitter.md) has an offline
+`rpidatv` build path but is not yet an installable or RF-tested arm64 release.
 This `Trixie` branch targets a Pi 4 (2 GB) with the **original Raspberry Pi
 7-inch 800×480 Touch Display**, running **Raspberry Pi OS Trixie Lite 32-bit
 (`armhf`)**. It is **not installable yet**:
@@ -44,4 +46,3 @@ chmod +x install_portsdown.sh
 The initial build can take between 45 minutes and one hour, however it does not need any user input, so go and make a cup of coffee and keep an eye on the touchscreen.  When the build is finished the Pi will reboot and start-up with the touchscreen menu.
 
 Once installed. Access the portsdown menu via /home/pi/rpidatv/scripts/menu.sh
-

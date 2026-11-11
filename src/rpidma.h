@@ -18,7 +18,7 @@
 
 char InitDma(void *FunctionTerminate);
 uint32_t mem_virt_to_phys(volatile void *virt);
-uint32_t mem_phys_to_virt(volatile uint32_t phys);
+uintptr_t mem_phys_to_virt(volatile uint32_t phys);
 
 
 #define MBFILE			DEVICE_FILE_NAME	/* From mailbox.h */ 

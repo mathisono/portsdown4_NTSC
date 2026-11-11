@@ -97,4 +97,4 @@ bin/muntjacsdr_dvb
 bin/*.mjo
 
 
-
+src/dvbsenco8_tables.h

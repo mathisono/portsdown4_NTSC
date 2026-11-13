@@ -46,7 +46,72 @@ Pluto was disabled because `libiio` development files were not installed.
 Neither transmitter binary was run, no RF output was activated, and the
 existing `rover-web.service` remained active.
 
-## DATV-Express USB DVB-S server
+## DATV-Express USB: DVB-S is not DVB-S2
+
+The existing Portsdown `DATVEXPRESS` output is explicitly **DVB-S only**. The
+GUI labels it "DATV Express DVB-S" and `EnforceValidTXMode()` changes an
+attempted DVB-S2 selection back to DVB-S. Its Linux `express_server` runs
+the board's DVB-S FPGA firmware, not a DVB-S2 modulator. Building that server
+for AArch64 therefore does **not** meet the requested Portsdown DVB-S2 output.
+
+The board itself is not necessarily limited to DVB-S. G4GUO's Windows
+`DatvExpressTransmitter` sends software-generated DVB-S2 I/Q through the
+board's raw-16-bit firmware. Portsdown already carries this raw I/Q USB path
+in `src/dvb_t_stack/src/express.cpp`, plus `datvexpress16.ihx` and
+`datvexpressraw16.rbf`. This is a starting point for a **new** Linux DVB-S2
+backend, not proof that the present Portsdown mode supports DVB-S2.
+
+On 12 November 2026, F5OEO `libdvbmod` commit
+`eff68b37047196e5bc732b08fa7f73c2bf94107e` built natively on TANK in
+`/home/leo/portsdown-s2mod-arm64.dSjSCW` (no system install). Its DVB-S2
+object and probe were ELF64 AArch64. An offline probe initialized QPSK 1/2,
+333 ksymbols/s, normal frame, 35% rolloff, two samples/symbol; after feeding
+null transport-stream packets, it returned a 64,980-sample I/Q frame and a
+reported net bitrate of 329,289 bit/s. This verifies **native I/Q generation
+at one configuration only**. It did not validate a decoded waveform, USB
+transfer, PTT, or RF. `lsusb -d 04b4:8613` found no board on TANK.
+
+The reproducible offline probe is `tests/express_s2_modulator_probe.cpp`. With
+the external `F5OEO/libdvbmod` checkout built, it can be compiled on either
+architecture using:
+
+```sh
+g++ -std=c++17 -O2 -I/path/to/libdvbmod/libdvbmod \
+  tests/express_s2_modulator_probe.cpp \
+  /path/to/libdvbmod/libdvbmod/lib/libdvbmod.a -o /tmp/express-s2-probe
+/tmp/express-s2-probe
+```
+
+The same committed probe passed on the local development host. The TANK
+result above used an equivalent probe in its isolated build directory; this
+exact committed source has not yet been rerun on TANK.
+
+The path to a verifiable Portsdown DVB-S2/DATV-Express transmitter is:
+
+1. Add a separate `DATVEXPRESS_S2` output/backend; preserve the working
+   DVB-S mode. Consume 188-byte TS packets from the existing `videots` path
+   (including a future SRT ingest connection), and generate DVB-S2 I/Q with
+   `libdvbmod`. Make code rate, pilots, frame length, symbol rate, and
+   rolloff explicit; reject unsupported combinations.
+2. Adapt the existing Linux raw-16 USB transport for continuous I/Q. Set the
+   board sample clock to symbol rate times interpolation, use its raw-16 FPGA
+   image, and keep PTT in receive until configuration and buffering succeed.
+   An initial ownership fix now copies each asynchronous payload and frees it
+   on completion/error, and closes a per-frame leak in the raw-16 writer.
+   This compiled with libusb/FFTW headers but has not been exercised on a
+   board. Transfer errors, sustained pacing, and shutdown still need tests.
+3. Verify the software waveform against a DVB-S2 decoder offline, then test
+   USB enumeration/firmware load and sustained streaming with the board
+   connected. Finally test RF into a dummy load/attenuated receiver across
+   representative symbol rates and FEC modes, including stop/underrun/PTT.
+   Enable the GUI choice only after this path is proven.
+
+No DATV-Express board was present for this build. The 32-bit and 64-bit
+Portsdown forks currently **do not provide verified DVB-S2 transmission via
+DATV-Express**. Native AArch64 modulation is now demonstrated; the Linux USB
+streaming backend and hardware verification remain outstanding.
+
+## Existing DATV-Express USB DVB-S server
 
 On TANK (Debian Trixie `arm64`), upstream `G4GUO/express_server` commit
 `d51081f21c7306334e7f00b85c257b88d28cb58b` built natively after installing

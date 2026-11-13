@@ -1,15 +1,45 @@
 ![portsdown banner](/doc/img/Portsdown_4.jpg)
 # Portsdown Buster Build For RPi 4
 
-**NTSC/Trixie development:** See [migration status and known limits](doc/ntsc-trixie-migration.md).
-The [native 64-bit transmitter port](doc/arm64-transmitter.md) has an offline
-`rpidatv` build path but is not yet an installable or RF-tested arm64 release.
-This `Trixie` branch targets a Pi 4 (2 GB) with the **original Raspberry Pi
-7-inch 800×480 Touch Display**, running **Raspberry Pi OS Trixie Lite 32-bit
-(`armhf`)**. It is **not installable yet**:
-the installer below remains Buster-only. Analog/webcam H.264 can use FFmpeg
-with software, hardware-if-available, or automatic encoder selection, but the
-full GUI and RF paths still need a Pi 4/Trixie test.
+## Trixie development status (12 November 2026)
+
+The `arm64-transmitter` branch contains work toward **two distinct targets**.
+Neither is an installable, RF-verified Trixie release. The installer and
+instructions below this section are for the legacy **32-bit Buster** release;
+do **not** run `install_portsdown.sh` or `update.sh` on Trixie.
+
+| Target | Implemented and checked | Not yet verified |
+| --- | --- | --- |
+| Pi 4, Raspberry Pi OS Trixie Lite **32-bit (`armhf`)**, original 7-inch 800×480 display | NTSC/PAL FFmpeg MPEG-TS path for analog/webcam input, encoder selection, GUI framebuffer/touchscreen fixes, and an installer guard. Offline TS tests passed; hardware H.264 encoding was demonstrated on a separate **64-bit** Pi 4. | Boot/build on the actual 32-bit target, original display and touch, capture devices, GUI runtime, installer/update, and RF output. |
+| Pi 4, Trixie **64-bit (`arm64`)**, DATV-Express USB board | Native AArch64 `rpidatv`, DVB-T2 stack, and DVB-S `express_server` builds. Experimental standalone DVB-S2 TS-to-I/Q-to-raw-USB backend built and generated I/Q offline on TANK. SRT listener accepted a synthetic H.264/AAC stream. | DATV-Express board USB enumeration, firmware, sustained I/Q, PTT, decoded DVB-S2/RF, GUI integration, and actual ATEM input. The board was not connected; no RF was transmitted. |
+
+**DVB-S2 distinction:** the existing Portsdown `DATVEXPRESS` GUI mode and
+`express_server` are **DVB-S only**. The new
+[`src/express_s2` backend](src/express_s2/express_s2.cpp) generates DVB-S2 I/Q
+and uses the raw-16 USB path, but has not been tested with a board and is not
+selectable in the GUI. Neither 32-bit nor 64-bit Portsdown currently has
+verified DVB-S2 transmission through DATV-Express.
+
+### Remaining work
+
+1. **32-bit Trixie:** test a spare Pi 4 image with the original display,
+   capture device, and intended RF hardware; finish the modern installer,
+   GUI/input path, remaining video sources, and install/update regression.
+2. **64-bit transmitter:** validate the Pi 4 DMA and RF path, port remaining
+   ARM32-only components, and test the intended output devices. A native
+   build and offline modulation do not establish a working transmitter.
+3. **DATV-Express DVB-S2:** connect the board to TANK with an appropriate
+   dummy load or attenuated receiver; verify raw-16 firmware, USB pacing,
+   errors, PTT/stop behavior, and a decoded RF signal. Then connect the
+   backend to Portsdown's `videots` input, expose a separate DVB-S2 GUI mode,
+   and add the required symbol-rate/FEC controls without changing DVB-S.
+4. **SRT/ATEM:** capture the actual feed, measure bitrate and codecs, match it
+   to DVB-S2 channel capacity, and integrate listener lifecycle and TS input.
+
+Detailed status, build evidence, and acceptance gates:
+[32-bit NTSC/Trixie migration](doc/ntsc-trixie-migration.md),
+[64-bit transmitter and DATV-Express DVB-S2](doc/arm64-transmitter.md), and
+[SRT ingest](doc/srt-express-ingest.md).
 
 **The Portsdown 4** is a DVB-S and DVB-S2 digital television system for the Raspberry Pi 4.  The core of the system was written by Evariste Courjaud F5OEO and is maintained by him.  This BATC Version, known as the Portsdown, has been developed by a team of BATC members for use with a LimeSDR, Pluto or a DATV Express PCB and a MiniTiouner or Knucker tuner.  The intention is that the design should be reproducible by someone who has never used Linux before.  Detailed instructions on loading the software are listed below, and further details of the complete system design and build are on the BATC Wiki at https://wiki.batc.org.uk/The_Portsdown_Transmitter.  There is a Forum for discussion of the project here: https://forum.batc.org.uk/viewforum.php?f=103
 

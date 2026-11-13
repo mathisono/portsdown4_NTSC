@@ -46,6 +46,30 @@ Pluto was disabled because `libiio` development files were not installed.
 Neither transmitter binary was run, no RF output was activated, and the
 existing `rover-web.service` remained active.
 
+## DATV-Express USB DVB-S server
+
+On TANK (Debian Trixie `arm64`), upstream `G4GUO/express_server` commit
+`d51081f21c7306334e7f00b85c257b88d28cb58b` built natively after installing
+`libusb-1.0-0-dev` version `2:1.0.28-1`. The isolated build and its log/record
+are at `/home/leo/express-server-arm64.POXOxA`; the executable is an ELF64
+AArch64 binary, dynamically linked to `libusb-1.0.so.0`, with SHA-256
+`debdb7c1ea7aa0d4ea0e132c76189876ad9f6db47811818d73ea2a1ebdd7ccd7`.
+No `make install` was run. The server was **not started** and no board, USB
+firmware, PTT, or RF path was tested. This establishes a native build, not
+working DATV-Express transmission.
+
+For board verification, stage the *DVB-S* firmware from the server repository
+(`datvexpress8.ihx` and `datvexpressdvbs.rbf`) under
+`/lib/firmware/datvexpress`, confirm USB ID `04b4:8613`, and start the binary
+from its source/config directory with output into a load/attenuated receiver.
+The separate DVB-T stack uses different `*16` firmware. Inspect the board's
+actual RF/PTT state before any transmission; the server initializes hardware
+before reading `datvexpress.txt`, which requests `set ptt rx`.
+
+The standalone SRT ingest tool and its separate verification are described in
+[`srt-express-ingest.md`](srt-express-ingest.md). It does not yet feed or start
+the server.
+
 ## Remaining before arm64 support can be claimed
 
 1. Compare captured encoded packets with the ARM32 path on real hardware;

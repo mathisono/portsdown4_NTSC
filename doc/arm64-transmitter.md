@@ -86,20 +86,37 @@ The same committed probe passed on the local development host. The TANK
 result above used an equivalent probe in its isolated build directory; this
 exact committed source has not yet been rerun on TANK.
 
+An **experimental standalone** `src/express_s2/express_s2` backend now
+links `libdvbmod` to the Linux raw-16 USB driver. With no options it runs an
+offline, 1000-null-packet QPSK 1/2 probe. `--input FILE` accepts 188-byte
+MPEG-TS packets (`-` means stdin); `--tx --frequency HZ` is an explicit,
+still-unverified hardware mode that requires an input and holds the board at
+maximum built-in attenuation. It has **not** been run with the board, and it
+does not appear in the GUI. It currently supports only QPSK 1/2, normal
+frames, pilots off, and 35% rolloff. Build with the external library and
+development headers installed:
+
+```sh
+make -C src/express_s2 \
+  LIBDVBMOD_DIR=/absolute/path/to/libdvbmod/libdvbmod
+src/express_s2/express_s2 --max-packets 1000
+```
+
 The path to a verifiable Portsdown DVB-S2/DATV-Express transmitter is:
 
-1. Add a separate `DATVEXPRESS_S2` output/backend; preserve the working
-   DVB-S mode. Consume 188-byte TS packets from the existing `videots` path
-   (including a future SRT ingest connection), and generate DVB-S2 I/Q with
-   `libdvbmod`. Make code rate, pilots, frame length, symbol rate, and
-   rolloff explicit; reject unsupported combinations.
+1. Connect the standalone backend to Portsdown's existing `videots` path
+   (including a future SRT ingest connection), then add a separate
+   `DATVEXPRESS_S2` output. Preserve the working DVB-S mode. Expand the
+   initial QPSK 1/2 mode to explicit code rate, pilots, frame length, symbol
+   rate, and rolloff, rejecting unsupported combinations.
 2. Adapt the existing Linux raw-16 USB transport for continuous I/Q. Set the
    board sample clock to symbol rate times interpolation, use its raw-16 FPGA
    image, and keep PTT in receive until configuration and buffering succeed.
    An initial ownership fix now copies each asynchronous payload and frees it
-   on completion/error, and closes a per-frame leak in the raw-16 writer.
-   This compiled with libusb/FFTW headers but has not been exercised on a
-   board. Transfer errors, sustained pacing, and shutdown still need tests.
+   on completion/error, closes a per-frame leak in the raw-16 writer, and
+   propagates data-transfer errors to the standalone backend. This compiled
+   locally with libusb/FFTW headers but has not been exercised on a board.
+   I2C errors, sustained pacing, and shutdown still need tests.
 3. Verify the software waveform against a DVB-S2 decoder offline, then test
    USB enumeration/firmware load and sustained streaming with the board
    connected. Finally test RF into a dummy load/attenuated receiver across

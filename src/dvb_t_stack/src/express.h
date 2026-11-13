@@ -106,6 +106,7 @@ enum{ HW_EXPRESS_16, HW_EXPRESS_8 };
 
 void express_write_samples(scmplx *s, int len);
 void express_write_16_bit_samples(scmplx *s, int len);
+int express_write_16_bit_samples_checked(const scmplx *s, int len);
 void express_write_transport_stream( uint8_t *tp, int len );
 void express_deinit(void);
 int  express_init( const char *fx2, const char *fpga );

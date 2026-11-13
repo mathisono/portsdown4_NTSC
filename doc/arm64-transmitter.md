@@ -102,6 +102,16 @@ make -C src/express_s2 \
 src/express_s2/express_s2 --max-packets 1000
 ```
 
+On 12 November 2026, TANK built commit `0a07ae1` natively in the isolated
+`/home/leo/portsdown-express-s2-arm64` sparse checkout, linked to the
+previously built external `libdvbmod` and system `libusb-1.0.so.0`. The binary
+is ELF64 AArch64, SHA-256
+`5dd0924afe693661b359f87fa4fd707c112d3ab8f5626455ee02e03a1897d23e`.
+Its offline default generated 46 frames / 1,494,540 I/Q samples from 1,000
+null packets. `rover-web.service` remained active; the board did not enumerate
+and RF was not enabled. This establishes a **native backend build and offline
+run**, not a working DATV-Express DVB-S2 transmission.
+
 The path to a verifiable Portsdown DVB-S2/DATV-Express transmitter is:
 
 1. Connect the standalone backend to Portsdown's existing `videots` path

@@ -9,6 +9,12 @@ if [ $? != 0 ]; then
   exit
 fi
 
+# Check that Portsdown is not already installed
+if [ -d /home/pi/rpidatv ]; then
+  echo "Portsdown already installed.  Use update instead."
+  exit
+fi
+
 # Check which source needs to be loaded
 #GIT_SRC="BritishAmateurTelevisionClub"
 GIT_SRC="Marx1"
@@ -35,16 +41,80 @@ cd /home/pi
 wget https://github.com/${GIT_SRC}/portsdown4_NTSC/raw/master/scripts/configs/vlc
 sudo cp vlc /etc/apt/preferences.d/vlc
 
-# Amend the sources.list to legacy
-sudo bash -c 'echo -e "deb http://legacy.raspbian.org/raspbian/ buster main contrib non-free rpi" > /etc/apt/sources.list' 
+
+# Configure legacy Raspbian Buster repositories
+echo
+echo "------------------------------------------------"
+echo "----- Configuring Buster APT Repositories -----"
+echo "------------------------------------------------"
+
+# This installer targets Raspberry Pi OS Buster
+. /etc/os-release
+
+if [ "${VERSION_CODENAME:-}" != "buster" ]; then
+  echo "ERROR: This installer requires Raspberry Pi OS Buster."
+  echo "Detected: ${PRETTY_NAME:-Unknown}"
+  exit 1
+fi
+
+# Back up existing repository configuration
+APT_BACKUP="/etc/apt/portsdown-backup-$(date +%Y%m%d-%H%M%S)"
+sudo mkdir -p "$APT_BACKUP"
+
+sudo cp -a /etc/apt/sources.list "$APT_BACKUP/" || exit 1
+
+if [ -d /etc/apt/sources.list.d ]; then
+  sudo cp -a /etc/apt/sources.list.d "$APT_BACKUP/" || exit 1
+fi
+
+# Replace obsolete Raspbian mirrors with the legacy archive.
+# Do not modify archive.raspberrypi.org/debian, which is
+# a separate repository for Raspberry Pi-specific packages.
+
+for source_file in /etc/apt/sources.list \
+                   /etc/apt/sources.list.d/*.list; do
+
+  [ -f "$source_file" ] || continue
+
+  sudo sed -i -E \
+    '/^[[:space:]]*deb(-src)?[[:space:]]/ {
+      /[[:space:]]buster[[:space:]]/ {
+        s@https?://(raspbian\.raspberrypi\.org|archive\.raspbian\.org|mirrordirector\.raspbian\.org)/raspbian/?@https://legacy.raspbian.org/raspbian/@g
+      }
+    }' "$source_file" || exit 1
+done
+
+# Make sure the Raspbian Buster repository exists
+if ! grep -Eh \
+  '^[[:space:]]*deb[[:space:]].*legacy\.raspbian\.org/raspbian/?.*[[:space:]]buster[[:space:]]' \
+  /etc/apt/sources.list \
+  /etc/apt/sources.list.d/*.list 2>/dev/null | grep -q .; then
+
+  echo "Adding missing Raspbian Buster repository."
+
+  echo "deb https://legacy.raspbian.org/raspbian/ buster main contrib non-free rpi" | \
+    sudo tee -a /etc/apt/sources.list >/dev/null || exit 1
+fi
 
 # Update the package manager
 echo
 echo "------------------------------------"
 echo "----- Updating Package Manager -----"
 echo "------------------------------------"
-sudo dpkg --configure -a
-sudo apt-get update --allow-releaseinfo-change
+
+sudo dpkg --configure -a || exit 1
+
+if ! sudo apt-get update --allow-releaseinfo-change; then
+  echo
+  echo "ERROR: APT update failed."
+  echo "Check the repository errors above."
+  echo "APT configuration backup: $APT_BACKUP"
+  exit 1
+fi
+
+echo
+echo "APT repositories updated successfully."
+
 
 # Uninstall the apt-listchanges package to allow silent install of ca certificates (201704030)
 # http://unix.stackexchange.com/questions/124468/how-do-i-resolve-an-apparent-hanging-update-process
@@ -70,7 +140,6 @@ echo "----- Installing Packages -----"
 echo "-------------------------------"
 
 sudo apt-get -y install git cmake libusb-1.0-0-dev libfftw3-dev libxcb-shape0 
-sudo apt-get -y install wiringpi                                         # Wiring pi depracated? 
 sudo apt-get -y install libx11-dev buffer libjpeg-dev indent 
 sudo apt-get -y install bc usbmount libvncserver-dev
 sudo apt-get -y install ttf-dejavu-core                                  # being depracated?
@@ -100,13 +169,26 @@ sudo apt-get -y install libzstd-dev                                     # For li
 sudo apt-get -y install arp-scan                                        # For List Network Devices
 sudo apt-get -y install cppcheck                                        # For HamTV Merger Client
 sudo apt-get -y install dnsmasq                                         # For dhcp server
-sudo apt-get -y install socat
-
+sudo apt-get -y install socat                                           # For debugging network issues
+sudo apt-get -y install lsof                                            # For debugging web control issues
+sudo apt-get -y install python3-dev                                     # For ISS tracker
+sudo apt-get -y install python3-pip                                     # For ISS tracker
+sudo apt-get -y install libhamlib-dev                                   # For ISS tracker
+sudo apt-get -y install libhamlib++-dev                                 # For ISS tracker
+sudo apt-get -y install libhamlib-utils                                 # For ISS tracker
+pip3 install ephem requests                                             # For ISS tracker
 
 # Install WiringPi
-cd /home/pi
+cd ~
 git clone https://github.com/WiringPi/WiringPi.git
 cd WiringPi
+
+# Modify so that it installs on 32-bit buster
+cd wiringPi
+sed -i -e 's/\(\[\[gnu::packed\]\]\)//g' bcm_registers.h
+sed -i -e 's/\(\[\[gnu::packed\]\]\)//g' rp1_registers.h
+cd ~/WiringPi
+
 ./build debian
 
 # Read latest WiringPi version number and install it
@@ -127,7 +209,7 @@ sudo make install
 cd /home/pi
 
 # Install Websockets for Meteor Beacon RX server
-git clone https://github.com/warmcat/libwebsockets.git
+git clone -b v4.5-stable --single-branch https://github.com/warmcat/libwebsockets.git
 cd libwebsockets
 cmake ./
 make all
@@ -250,18 +332,18 @@ if [[ "$?" != "0" ]]; then
 fi
 
 echo
-echo "--------------------------------------------------------------"
-echo "----- Downloading Portsdown 4 version of avc2ts Software -----"
-echo "--------------------------------------------------------------"
+echo "--------------------------------------------------"
+echo "----- Cloning Marx1 avc2ts Source Repository -----"
+echo "--------------------------------------------------"
 
-# Download the previously selected version of avc2ts for Portsdown 4
-cd /home/pi	
-wget https://github.com/BritishAmateurTelevisionClub/avc2ts/archive/refs/heads/portsdown4.zip
+cd /home/pi
 
-# Unzip the avc2ts software and copy to the Pi
-unzip -o portsdown4.zip
-mv avc2ts-portsdown4 avc2ts
-rm portsdown4.zip
+git clone --branch master \
+  https://github.com/Marx1/avc2ts.git \
+  /home/pi/avc2ts || exit 1
+
+echo "avc2ts source downloaded successfully."
+
 
 # Compile rpidatv gui
 echo
@@ -310,9 +392,11 @@ make V=1 -f linux.mk
 cd ../
 
 # Make avc2ts
-cd /home/pi/avc2ts
-make
-cp avc2ts ../rpidatv/bin/
+cd /home/pi/avc2ts || exit 1
+
+make || exit 1
+install -m 755 avc2ts /home/pi/rpidatv/bin/avc2ts || exit 1
+
 cd /home/pi
 
 echo
@@ -382,10 +466,9 @@ echo "------------------------------"
 cd /home/pi/rpidatv/src/muntjac
 
 gcc  muntjacsdr_dvb.c  dvbs2neon.S  -mfpu=neon  -lpthread  -o  muntjacsdr_dvb
-gcc  mjcalib-0v1a.c  dvbs2neon.S  -mfpu=neon  -lpthread  -o mjcalib  # only used for manual calibration
+#gcc  mjcalib-0v1a.c  dvbs2neon.S  -mfpu=neon  -lpthread  -o mjcalib  # only used for manual calibration
 
 cp muntjacsdr_dvb /home/pi/rpidatv/bin/             # Executable
-cp E46214B063533828.mjo /home/pi/rpidatv/bin/       # LO Suppression file
 
 cd /home/pi
 
@@ -402,6 +485,16 @@ cp dvb_t_stack /home/pi/rpidatv/bin/dvb_t_stack
 cd /home/pi/rpidatv/src/dvb_t_stack
 sudo cp datvexpress16.ihx /lib/firmware/datvexpress/datvexpress16.ihx
 sudo cp datvexpressraw16.rbf /lib/firmware/datvexpress/datvexpressraw16.rbf
+cd /home/pi
+
+echo
+echo "-----------------------------------"
+echo "----- Installing dvb_t2_stack -----"
+echo "-----------------------------------"
+cd /home/pi/rpidatv/src/dvb_t2_stack
+make clean
+make -j $(nproc) PI4=1 dvb_t2_stack
+cp dvb_t2_stack /home/pi/rpidatv/bin/dvb_t2_stack
 cd /home/pi
 
 # Install LongMynd
@@ -514,7 +607,7 @@ make
 cp plutoview ../../bin/
 cd /home/pi
 
-# For Metoeorview and sdrplayview
+# For Meteorview and sdrplayview
 # Download sdrplay api for install after first reboot
 echo
 echo "---------------------------------------"
@@ -523,6 +616,7 @@ echo "---------------------------------------"
 cd /home/pi/rpidatv/src/meteorview
 
 # Download api
+# was wget "https://sdrplay.com/download/hardware-api-linux-32bit-unsupported/?wpdmdl=2341&refresh=6a87239f68e1f1787241375" -O SDRplay_RSP_API-ARM-3.09.1.run
 wget https://www.sdrplay.com/software/SDRplay_RSP_API-ARM-3.09.1.run
 chmod +x SDRplay_RSP_API-ARM-3.09.1.run
 
@@ -636,9 +730,6 @@ cd /home/pi
 #echo "-----------------------------------------"
 #echo "----- Compiling Ancilliary programs -----"
 #echo "-----------------------------------------"
-
-
-
 
 
 # Compile and install the executable for GPIO-switched transmission (201710080)

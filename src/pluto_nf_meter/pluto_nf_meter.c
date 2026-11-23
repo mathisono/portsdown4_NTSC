@@ -107,7 +107,6 @@ int wbuttonsize = 100;
 int hbuttonsize = 50;
 int rawX, rawY;
 int FinishedButton = 0;
-int i;
 bool freeze = false;
 bool frozen = false;
 bool PeakPlot = false;
@@ -128,7 +127,8 @@ int pfreq2 = 437000;
 int pfreq3 = 748000;
 int pfreq4 = 1255000;
 int pfreq5 = 2409000;
-char PlutoIP[16];         // Pluto IP address
+char PlutoIP[16];            // Pluto IP address
+uint8_t BandBit7GPIO = 13;   // BandBit 7 Pin 21 BCM 9 to switch RX input to Pluto
 
 float MAIN_SPECTRUM_TIME_SMOOTH;
 
@@ -2448,6 +2448,7 @@ void RedrawDisplay()
 
 void *WaitButtonEvent(void * arg)
 {
+  int i;
   int  rawPressure;
 
   for (;;)
@@ -2543,7 +2544,7 @@ void *WaitButtonEvent(void * arg)
         default:
           printf("Menu 1 Error\n");
       }
-      if(i != 8)
+      if ((i != 8) && (PortsdownExitRequested == true))
       {
         PortsdownExitRequested = false;
         Start_Highlights_Menu1();
@@ -4282,6 +4283,7 @@ static void cleanexit(int calling_exit_code)
   exit_code = calling_exit_code;
   app_exit = true;
   printf("Clean Exit Code %d\n", exit_code);
+  digitalWrite(BandBit7GPIO, LOW);
   usleep(1000000);
   char Commnd[255];
   sprintf(Commnd,"stty echo");
@@ -4293,6 +4295,7 @@ static void cleanexit(int calling_exit_code)
 
 static void terminate(int sig)
 {
+  digitalWrite(BandBit7GPIO, LOW);
   app_exit = true;
   printf("Terminating\n");
   usleep(1000000);
@@ -4432,9 +4435,11 @@ int main(void)
 
   // Set all nominated pins to outputs
   pinMode(NoiseSourceGPIO, OUTPUT);
+  pinMode(BandBit7GPIO, OUTPUT);
 
   // Set idle conditions
   digitalWrite(NoiseSourceGPIO, LOW);
+  digitalWrite(BandBit7GPIO, HIGH);
 
   ReadSavedParams();
 
